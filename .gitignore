@@ -22,3 +22,6 @@ data/
 .DS_Store
 Thumbs.db
 *.log
+
+# ── 업로드 스크립트 (PAT 토큰 포함 — 절대 업로드 금지) ─
+upload_to_github.sh

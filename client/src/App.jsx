@@ -25,6 +25,7 @@ import LogPage        from './pages/LogPage'
 import IngestPage     from './pages/IngestPage'
 import SettingsPage   from './pages/SettingsPage'
 import WorkerPage     from './pages/WorkerPage'
+import WorkerKeywordPage from './pages/WorkerKeywordPage'
 
 const { Sider, Content } = Layout
 
@@ -40,6 +41,7 @@ const PUBLIC_NAV = [
 // ── 근무자 전용 메뉴 ────────────────────────────────────────────────────────
 const WORKER_NAV = [
   { key: '/worker', label: <Link to="/worker">송출 수동입력</Link>, icon: <FormOutlined /> },
+  { key: '/worker-keywords', label: <Link to="/worker-keywords">공익/재난 키워드</Link>, icon: <SettingOutlined /> },
 ]
 
 // ── 관리자 전용 메뉴 (추가분) ───────────────────────────────────────────────
@@ -129,7 +131,7 @@ export default function App() {
   // ── 근무자 로그아웃 처리 ───────────────────────────────────────────────────
   const handleWorkerLogout = () => {
     setIsWorker(false)
-    if (location.pathname === '/worker') {
+    if (location.pathname === '/worker' || location.pathname === '/worker-keywords') {
       navigate('/')
     }
     message.info('근무자 로그아웃 되었습니다.')
@@ -246,6 +248,7 @@ export default function App() {
             <Route path="/logs"        element={<LogPage />} />
             {/* 근무자 전용 라우트 */}
             <Route path="/worker"      element={isWorker ? <WorkerPage /> : <NotAllowedWorker />} />
+            <Route path="/worker-keywords" element={isWorker ? <WorkerKeywordPage /> : <NotAllowedWorker />} />
             {/* 관리자 전용 라우트 */}
             <Route path="/ingest"      element={isAdmin ? <IngestPage />     : <NotAllowed />} />
             <Route path="/settings"    element={isAdmin ? <SettingsPage />   : <NotAllowed />} />
