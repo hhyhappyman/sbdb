@@ -1,0 +1,244 @@
+"""
+FTP file fetcher — 송출 파일(apst/ddr1_log/cml)을 FTP 서버에서 가져와 적재한다.
+폴더 실시간 감시(watchdog)를 대체한다.
+
+FTP 서버 홈 폴더 밑에 apst / ddr1_log / cml 폴더가 있고, 파일명에 날짜(YYYYMMDD)가
+포함되어 있다고 가정한다. 해당 날짜의 파일을 종류별 로컬 폴더로 내려받은 뒤 적재한다.
+"""
+
+import re
+import time
+import ftplib
+import threading
+from datetime import datetime, date as date_cls, timedelta
+from pathlib import Path
+
+from database import get_apst_conn
+from config import FTP_SUBDIRS, FTP_PORT_DEFAULT
+from services.activity_log import log_event
+
+
+# ── 설정 조회 ────────────────────────────────────────────────────────────────
+
+_CONF_KEYS = [
+    "ftp_host", "ftp_port", "ftp_user", "ftp_password", "ftp_fetch_time",
+    "apst_dir", "ddr1_dir", "cml_path",
+]
+
+
+def _get_conf() -> dict:
+    ph = ",".join("?" * len(_CONF_KEYS))
+    with get_apst_conn() as conn:
+        rows = conn.execute(
+            f"SELECT key, value FROM app_settings WHERE key IN ({ph})", _CONF_KEYS
+        ).fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+def _local_dir(conf: dict, kind: str) -> str:
+    return {
+        "apst": conf.get("apst_dir", ""),
+        "ddr1": conf.get("ddr1_dir", ""),
+        "cml":  conf.get("cml_path", ""),
+    }.get(kind, "")
+
+
+# ── FTP 다운로드 ──────────────────────────────────────────────────────────────
+
+def _download_date(date: str) -> dict:
+    """
+    FTP 홈 폴더 밑 apst/ddr1_log/cml 에서 파일명에 date(YYYYMMDD)가 포함된 파일을
+    종류별 로컬 폴더로 내려받는다.
+    반환: {"apst": [파일명...], "ddr1": [...], "cml": [...]}
+    """
+    conf = _get_conf()
+    host = (conf.get("ftp_host") or "").strip()
+    if not host:
+        raise RuntimeError("FTP 서버 주소(ftp_host)가 설정되지 않았습니다.")
+    port = int((conf.get("ftp_port") or FTP_PORT_DEFAULT or "21"))
+    user = conf.get("ftp_user") or ""
+    pw = conf.get("ftp_password") or ""
+    date_nodash = date.replace("-", "")
+
+    downloaded = {"apst": [], "ddr1": [], "cml": []}
+
+    ftp = ftplib.FTP()
+    ftp.connect(host, port, timeout=30)
+    ftp.login(user, pw)
+    try:
+        home = ftp.pwd()
+        for kind, subdir in FTP_SUBDIRS.items():
+            local = _local_dir(conf, kind)
+            if not local:
+                continue
+            Path(local).mkdir(parents=True, exist_ok=True)
+            try:
+                ftp.cwd(home)
+                ftp.cwd(subdir)
+            except ftplib.error_perm:
+                continue  # 해당 폴더 없음
+            try:
+                names = ftp.nlst()
+            except ftplib.error_perm:
+                names = []
+            for name in names:
+                base = name.rsplit("/", 1)[-1]
+                if date_nodash in base:
+                    dest = Path(local) / base
+                    with open(dest, "wb") as fh:
+                        ftp.retrbinary(f"RETR {name}", fh.write)
+                    downloaded[kind].append(base)
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            ftp.close()
+
+    return downloaded
+
+
+# ── 상태 기록 (daily_fetch) ──────────────────────────────────────────────────
+
+def _set_status(date: str, status: str, message: str):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_apst_conn() as conn:
+        conn.execute(
+            """INSERT INTO daily_fetch (broadcast_date, status, message, updated_at)
+               VALUES (?,?,?,?)
+               ON CONFLICT(broadcast_date)
+               DO UPDATE SET status=excluded.status, message=excluded.message, updated_at=excluded.updated_at""",
+            (date, status, message, now),
+        )
+
+
+# ── 가져오기 + 적재 ───────────────────────────────────────────────────────────
+
+def fetch_and_ingest(date: str) -> dict:
+    """FTP에서 해당 날짜 파일을 받아 적재하고 daily_fetch 상태를 기록한다."""
+    from routers.ingest import ingest_date
+
+    try:
+        dl = _download_date(date)
+    except Exception as e:
+        _set_status(date, "error", f"FTP 오류: {e}")
+        log_event("error", "ftp", f"FTP 가져오기 오류 ({date}): {e}")
+        return {"date": date, "ok": False, "error": str(e)}
+
+    # APST 파일이 없으면 '누락'으로 기록 (전날 파일이 없어서 못 가져온 경우)
+    if not dl["apst"]:
+        _set_status(date, "missing", "APST 파일을 찾지 못했습니다.")
+        log_event("warning", "ftp", f"FTP 파일 없음 ({date}): APST 파일을 찾지 못했습니다.")
+        return {"date": date, "ok": False, "missing": True, "downloaded": dl}
+
+    ing = ingest_date(date)
+    _set_status(
+        date, "ok",
+        f"APST {len(dl['apst'])} · DDR1 {len(dl['ddr1'])} · CML {len(dl['cml'])} 파일",
+    )
+    log_event(
+        "info", "ftp",
+        f"FTP 가져오기 완료 ({date}): APST {ing['apst']}건, 수동 {ing['manual']}건, CML {ing['cml']}건",
+    )
+    return {"date": date, "ok": True, "downloaded": dl, "ingested": ing}
+
+
+def fetch_yesterday() -> dict:
+    """전날 파일 가져오기 (스케줄러/수동 실행용)."""
+    y = (date_cls.today() - timedelta(days=1)).isoformat()
+    return fetch_and_ingest(y)
+
+
+# ── 스케줄러 (매일 지정 시각에 전날 파일 자동 가져오기) ────────────────────────
+
+_sched_thread: threading.Thread | None = None
+_sched_stop = threading.Event()
+_last_run_date: str | None = None   # 정상 완료(성공/파일없음)한 날짜
+_retry_date: str | None = None      # 재시도 진행 중인 날짜
+_retry_count: int = 0
+_next_retry_ts: float = 0.0
+
+# 네트워크 오류 등으로 실패 시 재시도 설정
+_RETRY_INTERVAL_SEC = 120   # 재시도 간격 (2분)
+_MAX_RETRIES = 5            # 하루 최대 시도 횟수
+
+
+def _scheduler_loop():
+    global _last_run_date, _retry_date, _retry_count, _next_retry_ts
+    while not _sched_stop.is_set():
+        try:
+            t = (_get_conf().get("ftp_fetch_time") or "").strip()
+            if re.match(r"^\d{1,2}:\d{2}$", t):
+                now = datetime.now()
+                today = now.date().isoformat()
+                hh, mm = t.split(":")
+
+                # 예약 시각 도달 → 오늘 첫 시도 준비
+                if now.hour == int(hh) and now.minute == int(mm) \
+                        and _last_run_date != today and _retry_date != today:
+                    _retry_date = today
+                    _retry_count = 0
+                    _next_retry_ts = 0.0
+
+                # 오늘 시도가 시작됐고 아직 완료되지 않았으면 시도/재시도
+                if _retry_date == today and _last_run_date != today \
+                        and _retry_count < _MAX_RETRIES and time.time() >= _next_retry_ts:
+                    _retry_count += 1
+                    attempt = _retry_count
+                    label = "시작" if attempt == 1 else f"재시도({attempt}/{_MAX_RETRIES})"
+                    log_event("info", "ftp", f"FTP 자동 가져오기 {label} (예약 {t}, 전날 파일)")
+                    try:
+                        res = fetch_yesterday()
+                    except Exception as e:
+                        res = {"ok": False, "error": str(e)}
+                    if res.get("ok") or res.get("missing"):
+                        # 연결 성공(적재 완료 또는 파일 없음 확정) → 오늘 종료
+                        _last_run_date = today
+                        if attempt > 1:
+                            log_event("info", "ftp",
+                                      f"FTP 자동 가져오기 재시도 성공 ({attempt}회차)")
+                    else:
+                        # 네트워크 등 오류 → 다음 재시도 예약
+                        _next_retry_ts = time.time() + _RETRY_INTERVAL_SEC
+                        if attempt >= _MAX_RETRIES:
+                            _last_run_date = today   # 재시도 소진 → 무한루프 방지
+                            log_event("error", "ftp",
+                                      f"FTP 자동 가져오기 최종 실패 (재시도 {attempt}회 소진). "
+                                      f"네트워크 연결 후 수동으로 가져오세요.")
+        except Exception:
+            pass
+        _sched_stop.wait(30)
+
+
+def start_scheduler():
+    global _sched_thread
+    if _sched_thread and _sched_thread.is_alive():
+        return
+    _sched_stop.clear()
+    _sched_thread = threading.Thread(target=_scheduler_loop, daemon=True)
+    _sched_thread.start()
+    # 서버 재시작(--reload)마다 로그가 쌓이지 않도록 활동 로그(DB)에는 남기지 않고
+    # 콘솔에만 출력한다.
+    print("[FTP] 자동 가져오기 스케줄러 시작")
+
+
+def stop_scheduler():
+    _sched_stop.set()
+
+
+def get_missing_dates(year: int, month: int) -> list[str]:
+    """
+    해당 월의 미수집 날짜 목록 (MISSING_MARK_START 이후만).
+    - 'missing': 연결됐으나 APST 파일 없음
+    - 'error'  : 네트워크 오류 등으로 가져오지 못함
+    둘 다 달력에 붉은색으로 표시한다.
+    """
+    from config import MISSING_MARK_START
+    ym = f"{year:04d}-{month:02d}"
+    with get_apst_conn() as conn:
+        rows = conn.execute(
+            """SELECT broadcast_date FROM daily_fetch
+               WHERE status IN ('missing', 'error')
+                 AND broadcast_date LIKE ? AND broadcast_date >= ?""",
+            (f"{ym}-%", MISSING_MARK_START),
+        ).fetchall()
+    return [r["broadcast_date"] for r in rows]

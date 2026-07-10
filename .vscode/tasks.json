@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "백엔드 실행 (FastAPI)",
+      "type": "shell",
+      "command": "PYTHONPATH=/home/young/code/proj1/server /home/young/code/proj1/venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+      "options": {
+        "cwd": "/home/young/code/proj1/server"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "tabName": "백엔드"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "." },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Started server process",
+          "endsPattern": "Application startup complete"
+        }
+      }
+    },
+    {
+      "label": "프론트엔드 실행 (React)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "/home/young/code/proj1/client"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "tabName": "프론트엔드"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "." },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in"
+        }
+      }
+    },
+    {
+      "label": "전체 실행 (백엔드 + 프론트엔드)",
+      "dependsOn": ["백엔드 실행 (FastAPI)", "프론트엔드 실행 (React)"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
