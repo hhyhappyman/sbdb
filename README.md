@@ -72,11 +72,21 @@ bash run_server.sh bg     # 백그라운드 (로그: server.log)
 bash run_server.sh stop   # 백그라운드 종료
 ```
 
-### 코드 업데이트 후
+### 코드 업데이트 (재배포) — `update.sh`
+GitHub 최신 코드 받기 → 백엔드 의존성 갱신 → 프론트 재빌드 → 서비스 재시작을 한 번에.
+```bash
+cd ~/sbdb
+bash update.sh
+```
+> systemd 서비스(`install_service.sh`)가 등록된 상태에서 사용. `run_server.sh`로 수동 실행 중이면
+> 재시작은 `bash run_server.sh stop && bash run_server.sh bg`로.
+
+수동으로 하려면:
 ```bash
 cd ~/sbdb && git pull
 cd client && npm run build && cd ..
-sudo systemctl restart sbdb      # (run_server.sh 사용 시: bash run_server.sh stop && bash run_server.sh bg)
+source venv/bin/activate && pip install -r requirements.txt
+sudo systemctl restart sbdb
 ```
 
 ---

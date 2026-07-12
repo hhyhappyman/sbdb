@@ -329,7 +329,8 @@
 - [x] `setup_ec2.sh` — EC2(Amazon Linux) 초기 셋업: 패키지 설치 → clone/pull → venv+pip → npm build → 접근제한 IP 초기화(0.0.0.0)
 - [x] `run_server.sh` — 수동 서버 실행/백그라운드(nohup+PID)/종료
 - [x] `install_service.sh` — systemd 서비스(`sbdb`) 등록: 부팅 자동 시작 + 크래시 자동 복구, uninstall 지원
-- [x] `README.md` — 프로젝트 개요 + 로컬 개발 + EC2 배포(3스크립트) + GitHub 업로드 + 배포 확인사항 정리
+- [x] `update.sh` — 재배포: git pull → 백엔드 의존성 갱신 → 프론트 재빌드 → 서비스 재시작
+- [x] `README.md` — 프로젝트 개요 + 로컬 개발 + EC2 배포(setup/service/run/update 스크립트) + GitHub 업로드 + 배포 확인사항 정리
 
 ---
 
