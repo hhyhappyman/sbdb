@@ -123,6 +123,13 @@ def _ingest_apst(file_path: str):
         _add_log("info", f"[APST] 자동 적재 완료: {fname} ({len(records)}건)")
         log_event("info", "db_insert", f"APST 자동 적재: {fname} ({len(records)}건)")
 
+        # 적재 후 해당 날짜의 세 파일(APST/DDR1/CML) 존재 여부로 달력 상태를 갱신한다.
+        # (모두 있으면 ok=붉은색 해제, 하나라도 없으면 missing 유지)
+        bdate = _date_from_filename(fname)
+        if bdate:
+            from services.ftp_fetcher import refresh_fetch_status
+            refresh_fetch_status(bdate)
+
         segments = find_manual_segments(file_path)
         manual_inserted = _ingest_manual_segments(segments)
         if manual_inserted:
@@ -352,6 +359,29 @@ def _get_setting_value(key: str) -> str:
     return row["value"] if row else ""
 
 
+def _initial_scan():
+    """
+    감시 시작 시, 폴더에 이미 존재하는 미적재 파일을 일괄 적재한다.
+    (감시기는 '시작 이후 새로 들어오는' 파일만 감지하므로, 먼저 업로드된 파일도
+     처리되도록 CML → APST → DDR1 순서로 스캔한다. 이미 처리된 파일은 자동 건너뜀.)
+    """
+    apst_dir, ddr1_dir = _get_dirs()
+    cml_dir = _get_setting_value("cml_path")
+    try:
+        if cml_dir and Path(cml_dir).is_dir():
+            for f in sorted(Path(cml_dir).glob("*.cml")):
+                _ingest_cml(str(f))
+        if apst_dir and Path(apst_dir).is_dir():
+            for f in sorted(Path(apst_dir).glob("*.apst")):
+                _ingest_apst(str(f))
+        if ddr1_dir and Path(ddr1_dir).is_dir():
+            for f in sorted(Path(ddr1_dir).glob("*.[lL][oO][gG]")):
+                _ingest_ddr1(str(f))
+        _add_log("info", "[감시] 기존 파일 초기 스캔 완료")
+    except Exception as e:
+        _add_log("error", f"[감시] 초기 스캔 오류: {e}")
+
+
 def start_watching() -> dict:
     global _observer
 
@@ -386,6 +416,9 @@ def start_watching() -> dict:
 
         observer.start()
         _observer = observer
+
+        # 감시 시작 전 이미 폴더에 있던 미적재 파일을 백그라운드로 일괄 스캔
+        threading.Thread(target=_initial_scan, daemon=True).start()
 
         # DB에 감시 상태 저장 (재시작 시 자동 재개용)
         with get_apst_conn() as conn:

@@ -274,6 +274,7 @@
 - [x] 소재명에 포함 키워드가 있으면 공익/재난으로 포함, 제외 키워드가 있으면 집계에서 제외
 - [x] 기본값 `학교폭력예방`(공익) 최초 설치 시 시딩(비워도 복구 안 함)
 - [x] `SettingsPage.jsx` — '공익/재난 분류 키워드' 섹션 입력란 3개 추가
+- [x] **근무자 모드 키워드 편집** — `WorkerKeywordPage.jsx` 신규(키워드 3개만 표시·저장), 근무자 메뉴 '공익/재난 키워드'(`/worker-keywords`) + 라우트 추가(`App.jsx`). 관리자 로그인 없이 근무자가 키워드만 수정 가능
 
 ### 7-3. FTP 파일 가져오기 (폴더 감시 대체)
 - [x] `config.py` — `ftp_host/port/user/password/fetch_time` 설정키, `FTP_SUBDIRS`, `MISSING_MARK_START`
@@ -282,6 +283,10 @@
 - [x] 달력: 누락일 붉은 0 표시(`daily_fetch` missing, MISSING_MARK_START 이후) + 클릭 재수집
 - [x] **스케줄러 재시도 로직** — 예약 시각 실패(네트워크 오류 등) 시 2분 간격 최대 5회 재시도 (No route to host 등 일시 장애 대응)
 - [x] **버그 수정** — 네트워크 오류 미수집일이 달력에 붉은색으로 표시되지 않던 문제 해결. `daily_fetch` 상태가 파일 없음은 `missing`, 네트워크 오류는 `error`로 갈리는데 `get_missing_dates`가 `missing`만 조회하던 것을 `status IN ('missing','error')`로 변경
+- [x] **FTP ↔ 폴더 감시 상호 배타** — 예약 시각에 `watcher_enabled`(폴더 감시)가 ON이면 FTP 자동 가져오기를 건너뜀(둘 중 하나만 동작). 수동 가져오기 버튼은 영향 없음
+- [x] **폴더 감시 모드 누락일 표시** — 감시 모드에서 예약 시각에 전날 파일 존재 여부를 점검(`refresh_fetch_status`)해 미완이면 `missing`으로 기록 → 달력 붉은색. 이후 감시기가 늦게 적재하면 `_ingest_apst`가 상태를 재평가해 자동 갱신
+- [x] **감시 시작 시 기존 파일 초기 스캔** — `start_watching`이 `_initial_scan`(CML→APST→DDR1, 이미 처리된 건 건너뜀)을 백그라운드 실행 → 파일을 먼저 올리고 감시를 켜도 자동 적재·붉은색 해제
+- [x] **누락 판정 3파일 확대** — `refresh_fetch_status(date)` 신규: 로컬 폴더의 APST/DDR1/CML 존재 여부로 판정(모두 있으면 ok, 하나라도 없으면 missing + 없는 파일 종류 메시지). FTP·폴더감시·감시기 적재 후처리 공용 사용(기존 APST 단독 판정 대체)
 
 ### 7-4. 방송운행표(F-06) 표시·양식 개선
 - [x] 소재종류 라벨 매핑 추가: P→프로그램, SBC→광고, IDC/F/E→기타, PRM+시보→시보

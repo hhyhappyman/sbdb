@@ -330,6 +330,7 @@ SQLite ATTACH DATABASE로 두 DB를 동시에 연결하여 UNION 쿼리 실행
 ### R-2. 공익/재난 분류 키워드 (환경설정)
 - 소재명에 특정 문자열이 있으면 공익/재난에 포함(각각 별도), 특정 문자열이 있으면 제외
 - 설정키: `gongik_include_keywords`, `jaenan_include_keywords`, `gongik_jaenan_exclude_keywords` (콤마·줄바꿈 구분)
+- **근무자 모드**에서도 이 키워드 3개 항목만 별도 화면(`/worker-keywords`)에서 수정·저장 가능 (관리자 로그인 불필요, 다른 설정은 노출·변경 안 됨)
 
 ### R-3. FTP 파일 가져오기 (폴더 실시간 감시 대체)
 - FTP 서버(host/port/user/password)에서 날짜별 apst/ddr1_log/cml 파일을 내려받아 적재

@@ -133,7 +133,7 @@
 | `Con` | String | `C` | 이어서 — 저장 안 함 (예시 파일 22개) |
 | `Con` | String | `G` | 광고그룹 — 저장 안 함 (예시 파일 9개) |
 | `Con` | String | `AIR` | 프로그램 — 저장 안 함 (예시 파일 26개) |
-| `Con` | String | `PGM`, `PRM`, `IDC`, `F`, `SBC`, `E01` 등 | 기타 — 저장 안 함 |
+| `Con` | String | `PRM`, `R`, `F`, `E`, `IDC`, `P`, `SBC` 등 | 기타 — 기본 저장 안 함. 단 **이름에 '공익'/'재난'이 있으면 `공익재난`으로 저장** (2026-07, 아래 참조) |
 | `TT` | Int | `1` | SB 블록 헤더 |
 | `TT` | Int | `0` | 일반 아이템 |
 | `DT` | Int | `0` | 일반 |
@@ -157,17 +157,30 @@
 
 ---
 
-## SB 아이템 판별 기준 ✅ 수정
+## SB 아이템 판별 기준 ✅ 수정 (2026-07 공익재난 규칙 반영)
 
-APST 파일에서 DB에 저장하는 SB 송출 아이템은 아래 조건으로 식별:
+APST 파일에서 DB에 저장하는 소재종류(`content_type_label`)는 `_decide_store_type(con, 이름에_공익재난_여부, 방송종료안내_여부)`로 결정한다:
 
 ```
-SrcID가 'N'으로 시작하는 6자리 숫자 형식  (예: N278282)
-AND Con = 'K' (캠페인) 또는 Con = 'I' (ID)
+con = I                        → ID
+con ∈ {C, G, AIR, SBC}         → 저장 안 함 (이어서/광고그룹/프로그램/광고)
+con = K                        → 이름에 공익/재난 + 프로그램='방송 종료 안내' 이면 공익재난, 아니면 캠페인
+그 외(PRM, R, F, E, IDC, P …)  → 이름에 공익/재난 있으면 공익재난, 없으면 저장 안 함
 ```
 
-- `SrcID`의 N-ID는 CML 매핑 파일의 N-ID와 연결됨
-- 같은 SB 띠 안의 `C`(이어서)/`G`(광고그룹)/`AIR`(프로그램) 아이템은 저장하지 않지만, `program_block`(그룹명) 결정에는 짝이 되는 `AIR` 그룹의 `EvtGrp.eName`이 사용됨 (위 "그룹 쌍 구조" 참조)
+- **SrcID 필터**: 캠페인/ID는 기존대로 `N######` 형식만 저장. **공익재난은 SrcID 제한 없음** — 재난(`R`) 소재는 SrcID가 `K0000…` 형식이라 N-필터에 걸려 과거에 누락되던 것을 해결.
+- `SrcID`의 N-ID는 CML 매핑 파일의 N-ID와 연결됨.
+- 같은 SB 띠 안의 `C`/`G`/`AIR` 아이템은 저장하지 않지만, `program_block`(그룹명) 결정에는 짝이 되는 `AIR` 그룹의 `EvtGrp.eName`이 사용됨 (위 "그룹 쌍 구조" 참조).
+- 공익재난 소재명은 `clean_prm_campaign_name()`으로 정제(`[※]`, `(30초)`, `(공익)/(재난)` 접두 정리 등).
+
+### 방송 운행표(리포트) 표시용 라벨 (`parse_apst_all` / `_resolve_content_type_label`)
+DB 저장과 별개로, 방송 운행표 화면·PDF·Word 표시용 라벨 매핑:
+
+```
+P/AIR → 프로그램,  SBC → 광고,  G → 광고그룹,  IDC/F/E → 기타,  PRM+'시보' → 시보
+```
+표시 단계 추가 규칙: 소재제목에 독립 `ID` 토큰(`\bID\b`)이 있으면 ID로 표기(방송개시/종료 방송국 ID),
+'방송 종료 안내' 프로그램은 소재종류와 무관하게 공익/재난 포함 시 공익재난으로 표기.
 
 ---
 
@@ -195,7 +208,9 @@ hour = dt.hour
 | `item_name` | `_PgmName_` | |
 | `duration_sec` | `Dur._nDurSec` | |
 | `program_block` | 짝이 되는 `AIR` 그룹(`EvtGrp.eTy="P"`)의 `EvtGrp.eName` | ✅ 수정 — 자기 그룹의 `_GrpName_`이 아님 |
-| `content_type` | `Con` | K/I (저장 대상) |
+| `content_type` | `Con` | 원본 con 코드 (K/I/PRM/R/…) |
+| `content_type_label` | `_decide_store_type()` | 캠페인/ID/공익재난 — 저장·집계용 소재종류 |
+| `grade` | `classify_grade(time)` | SA/A/B/C 급지 |
 | `main_equipment` | `MM` | ✅ 신규 — 주장비명 원본 그대로 저장 |
 | `internal_id` | `ID` | |
 | `source` | `"apst"` | 고정값 |

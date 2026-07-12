@@ -124,28 +124,81 @@ def fetch_and_ingest(date: str) -> dict:
         log_event("error", "ftp", f"FTP 가져오기 오류 ({date}): {e}")
         return {"date": date, "ok": False, "error": str(e)}
 
-    # APST 파일이 없으면 '누락'으로 기록 (전날 파일이 없어서 못 가져온 경우)
-    if not dl["apst"]:
-        _set_status(date, "missing", "APST 파일을 찾지 못했습니다.")
-        log_event("warning", "ftp", f"FTP 파일 없음 ({date}): APST 파일을 찾지 못했습니다.")
-        return {"date": date, "ok": False, "missing": True, "downloaded": dl}
+    # 받은 APST가 있으면 적재
+    ing = ingest_date(date) if dl["apst"] else None
 
-    ing = ingest_date(date)
-    _set_status(
-        date, "ok",
-        f"APST {len(dl['apst'])} · DDR1 {len(dl['ddr1'])} · CML {len(dl['cml'])} 파일",
-    )
+    # 세 파일(APST/DDR1/CML) 존재 여부로 상태 판정 — 하나라도 없으면 missing(붉은색)
+    status = refresh_fetch_status(date)
+    if status["ok"]:
+        log_event(
+            "info", "ftp",
+            f"FTP 가져오기 완료 ({date}): APST {ing['apst'] if ing else 0}건, "
+            f"수동 {ing['manual'] if ing else 0}건, CML {ing['cml'] if ing else 0}건",
+        )
+        return {"date": date, "ok": True, "downloaded": dl, "ingested": ing}
+
     log_event(
-        "info", "ftp",
-        f"FTP 가져오기 완료 ({date}): APST {ing['apst']}건, 수동 {ing['manual']}건, CML {ing['cml']}건",
+        "warning", "ftp",
+        f"FTP 파일 일부 없음 ({date}): 없는 파일 {', '.join(status['missing_kinds'])}",
     )
-    return {"date": date, "ok": True, "downloaded": dl, "ingested": ing}
+    return {"date": date, "ok": False, "missing": True,
+            "downloaded": dl, "missing_kinds": status["missing_kinds"]}
 
 
 def fetch_yesterday() -> dict:
     """전날 파일 가져오기 (스케줄러/수동 실행용)."""
     y = (date_cls.today() - timedelta(days=1)).isoformat()
     return fetch_and_ingest(y)
+
+
+# ── 폴더 감시 모드 연동 ────────────────────────────────────────────────────────
+
+def _is_watcher_enabled() -> bool:
+    """폴더 실시간 감시가 켜져 있는지 여부."""
+    with get_apst_conn() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'watcher_enabled'"
+        ).fetchone()
+    return bool(row and row["value"] == "1")
+
+
+def _present_files_for_date(date: str) -> dict:
+    """
+    로컬 폴더(apst_dir/ddr1_dir/cml_path)에 해당 날짜의 APST/DDR1/CML 파일이
+    존재하는지 검사한다. 반환: {"apst": bool, "ddr1": bool, "cml": bool}
+    """
+    conf = _get_conf()
+    dnodash = date.replace("-", "")
+    dirs = {
+        "apst": (conf.get("apst_dir", ""), ".apst"),
+        "ddr1": (conf.get("ddr1_dir", ""), ".log"),
+        "cml":  (conf.get("cml_path", ""), ".cml"),
+    }
+    present = {}
+    for kind, (d, ext) in dirs.items():
+        found = False
+        if d and Path(d).is_dir():
+            for f in Path(d).iterdir():
+                if f.is_file() and dnodash in f.name and f.name.lower().endswith(ext):
+                    found = True
+                    break
+        present[kind] = found
+    return present
+
+
+def refresh_fetch_status(date: str) -> dict:
+    """
+    해당 날짜의 APST/DDR1/CML 세 파일이 모두 있으면 daily_fetch='ok',
+    하나라도 없으면 'missing'(어떤 파일이 없는지 메시지에 표시)으로 기록한다.
+    (미완이면 달력에 붉은색으로 표시됨) — FTP·폴더감시 공용.
+    """
+    present = _present_files_for_date(date)
+    missing = [k.upper() for k in ("apst", "ddr1", "cml") if not present[k]]
+    if not missing:
+        _set_status(date, "ok", "APST·DDR1·CML 파일 모두 존재")
+        return {"date": date, "ok": True}
+    _set_status(date, "missing", f"없는 파일: {', '.join(missing)}")
+    return {"date": date, "ok": False, "missing": True, "missing_kinds": missing}
 
 
 # ── 스케줄러 (매일 지정 시각에 전날 파일 자동 가져오기) ────────────────────────
@@ -182,6 +235,19 @@ def _scheduler_loop():
                 # 오늘 시도가 시작됐고 아직 완료되지 않았으면 시도/재시도
                 if _retry_date == today and _last_run_date != today \
                         and _retry_count < _MAX_RETRIES and time.time() >= _next_retry_ts:
+                    # ── 상호 배타: 폴더 감시가 켜져 있으면 FTP 가져오기는 건너뛴다 ──
+                    # 대신 전날 파일이 폴더 감시로 적재됐는지 점검해, 미적재면 달력에
+                    # 붉은색(누락)으로 표시한다.
+                    if _is_watcher_enabled():
+                        y = (date_cls.today() - timedelta(days=1)).isoformat()
+                        log_event("info", "watch",
+                                  f"폴더 감시 모드 — FTP 자동 가져오기 건너뜀. "
+                                  f"전날({y}) 파일 존재 여부 점검")
+                        refresh_fetch_status(y)
+                        _last_run_date = today
+                        _sched_stop.wait(30)
+                        continue
+
                     _retry_count += 1
                     attempt = _retry_count
                     label = "시작" if attempt == 1 else f"재시도({attempt}/{_MAX_RETRIES})"

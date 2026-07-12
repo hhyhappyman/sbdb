@@ -9,6 +9,13 @@
 - **총 라인 수**: 약 12,652 (예시 파일 기준)
 - **역할**: 클립 ID(N-ID, CM-ID 등) → 아이템명 매핑
 
+### 날짜별 CML 파일 (2026-07)
+CML은 단일 고정 파일이 아니라 **날짜별 파일**(`imc<YYYYMMDD>.cml`)로 관리한다.
+- 환경설정 `cml_path`는 CML 파일들이 있는 **디렉터리**를 가리킨다.
+- 특정 날짜의 소재명을 변환할 때 `parsers/cml_parser.resolve_cml_path_for_date(date)`가
+  그 날짜(또는 그 이전 가장 가까운 날짜)의 `imcYYYYMMDD.cml`을 찾아 사용한다.
+- FTP 가져오기 시 apst/ddr1_log와 함께 해당 날짜의 CML도 내려받는다.
+
 ---
 
 ## 파일 구조
