@@ -31,3 +31,6 @@ upload_to_github.sh
 *.key
 id_rsa
 id_rsa.pub
+
+# ── 문서 (업로드 제외) ────────────────────────────────
+README.md
