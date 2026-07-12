@@ -4,9 +4,11 @@ Run: uvicorn main:app --reload --port 8000
 """
 
 import ipaddress
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import CORS_ORIGINS
 from database import init_db
@@ -147,3 +149,26 @@ app.include_router(export.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ── 프론트엔드(React 빌드) 서빙 ───────────────────────────────────────────────
+# 배포 환경에서는 Vite 개발서버 없이 uvicorn 하나로 화면+API를 함께 제공한다.
+# client/dist 가 있으면 정적 파일로 마운트하고, SPA 라우팅을 위해 알 수 없는
+# 경로(파일이 아닌)는 index.html로 폴백한다. (반드시 /api 라우터 등록 이후에 둘 것)
+_DIST_DIR = Path(__file__).parent.parent / "client" / "dist"
+if _DIST_DIR.is_dir():
+    _INDEX = _DIST_DIR / "index.html"
+
+    # 정적 에셋(js/css/img 등)
+    app.mount("/assets", StaticFiles(directory=str(_DIST_DIR / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str):
+        # /api 경로는 여기서 처리하지 않음 (정상 404가 나도록)
+        if full_path.startswith("api/"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        # 실제 파일이 있으면 그 파일을, 없으면 SPA 진입점(index.html)을 반환
+        candidate = _DIST_DIR / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_INDEX))
