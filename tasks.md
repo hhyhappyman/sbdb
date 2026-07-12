@@ -323,6 +323,14 @@
 - [x] 섹션 간 간격 확대 + 구분선
 - [x] `report_dir`(PDF 저장 루트 경로) 설정 제거(미사용)
 
+### 7-10. 배포 · 버전관리
+- [x] `.gitignore` 추가 — venv/node_modules/db/*.db/data/reports 및 토큰 포함 스크립트 제외
+- [x] `upload_to_github.sh` — 로컬(WSL)→GitHub 커밋·푸시(상단 변수에 토큰 입력, 푸시 후 원격 URL 토큰 제거). `.gitignore`로 미업로드
+- [x] `setup_ec2.sh` — EC2(Amazon Linux) 초기 셋업: 패키지 설치 → clone/pull → venv+pip → npm build → 접근제한 IP 초기화(0.0.0.0)
+- [x] `run_server.sh` — 수동 서버 실행/백그라운드(nohup+PID)/종료
+- [x] `install_service.sh` — systemd 서비스(`sbdb`) 등록: 부팅 자동 시작 + 크래시 자동 복구, uninstall 지원
+- [x] `README.md` — 프로젝트 개요 + 로컬 개발 + EC2 배포(3스크립트) + GitHub 업로드 + 배포 확인사항 정리
+
 ---
 
 ## 현재 상태
