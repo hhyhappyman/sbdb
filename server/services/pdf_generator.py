@@ -32,36 +32,66 @@ from config import (
 
 _FONT_REGISTERED = False
 
+def _try_register(name: str, path: str) -> bool:
+    """폰트 1개 등록 시도. .ttc(폰트 컬렉션)는 subfontIndex=0 사용."""
+    try:
+        if path.lower().endswith(".ttc"):
+            pdfmetrics.registerFont(TTFont(name, path, subfontIndex=0))
+        else:
+            pdfmetrics.registerFont(TTFont(name, path))
+        return True
+    except Exception:
+        return False
+
+
+def _find_korean_font() -> str | None:
+    """
+    한글 지원 폰트 파일 경로를 찾는다.
+    ① 자주 쓰는 고정 경로(Ubuntu/WSL/Windows) → ② 폰트 디렉터리 재귀 검색(Amazon Linux 등).
+    """
+    fixed = [
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "C:/Windows/Fonts/malgun.ttf",
+        "/mnt/c/Windows/Fonts/malgun.ttf",
+    ]
+    for p in fixed:
+        if os.path.exists(p):
+            return p
+
+    # Amazon Linux/기타: 폰트 디렉터리를 재귀 검색해 한글 폰트 파일명을 찾는다.
+    import glob
+    keywords = ("NanumGothic", "NotoSansCJK", "NotoSansKR", "UnDotum", "malgun", "NanumBarun")
+    for root in ("/usr/share/fonts", os.path.expanduser("~/.fonts"), "/usr/local/share/fonts"):
+        if not os.path.isdir(root):
+            continue
+        for ext in ("ttf", "ttc", "otf"):
+            for f in glob.glob(f"{root}/**/*.{ext}", recursive=True):
+                base = os.path.basename(f)
+                if any(k.lower() in base.lower() for k in keywords):
+                    return f
+    return None
+
+
 def _register_fonts() -> str:
     """Register a Korean-capable font and return the font name."""
     global _FONT_REGISTERED
     if _FONT_REGISTERED:
         return "KoreanFont"
 
-    # Common Korean font paths (Ubuntu/WSL)
-    candidates = [
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "C:/Windows/Fonts/malgun.ttf",        # Windows
-        "/mnt/c/Windows/Fonts/malgun.ttf",    # WSL → Windows
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            pdfmetrics.registerFont(TTFont("KoreanFont", path))
-            pdfmetrics.registerFont(TTFont("KoreanFont-Bold",
-                path.replace("Regular", "Bold")
-                    .replace("NanumGothic", "NanumGothicBold")
-                    .replace("UnDotum", "UnDotum")
-                    .replace("malgun.ttf", "malgunbd.ttf")
-                if os.path.exists(
-                    path.replace("Regular", "Bold")
-                        .replace("NanumGothic", "NanumGothicBold")
-                        .replace("malgun.ttf", "malgunbd.ttf")
-                ) else path
-            ))
-            _FONT_REGISTERED = True
-            return "KoreanFont"
+    path = _find_korean_font()
+    if path and _try_register("KoreanFont", path):
+        # Bold 변형 파일이 있으면 사용, 없으면 Regular를 Bold로도 등록
+        bold_path = (path.replace("Regular", "Bold")
+                         .replace("NanumGothic", "NanumGothicBold")
+                         .replace("malgun.ttf", "malgunbd.ttf"))
+        if bold_path != path and os.path.exists(bold_path) and _try_register("KoreanFont-Bold", bold_path):
+            pass
+        else:
+            _try_register("KoreanFont-Bold", path)   # 볼드 파일 없으면 동일 폰트로 대체
+        _FONT_REGISTERED = True
+        return "KoreanFont"
 
     return "Helvetica"   # Fallback (Korean may not render)
 

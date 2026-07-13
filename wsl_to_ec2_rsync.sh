@@ -15,7 +15,7 @@ LOCAL_DATA_DIR="$HOME/data"      # 예: ~/data (밑에 apst, ddr1_log, cml 등 �
 LOCAL_DB_DIR="$HOME/code/proj1/db"          # 예: ~/db
 
 # ----- EC2 접속 정보 -----
-EC2_HOST="54.226.5.78"          # EC2 퍼블릭 IP
+EC2_HOST="3.81.226.251"          # EC2 퍼블릭 IP
 EC2_USER="ec2-user"  # 예: ec2-user, ubuntu
 PEM_PATH="$HOME/code/proj1/gistedu-3-key-sbdb.pem"   # pem 키 경로
 
