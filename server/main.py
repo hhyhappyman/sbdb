@@ -124,7 +124,8 @@ def on_startup():
 
 @app.on_event("shutdown")
 def on_shutdown():
-    stop_watching()
+    # persist=False: 종료 시엔 watcher_enabled 값을 지우지 않아, 재시작 후 자동 재개되게 함
+    stop_watching(persist=False)
     stop_scheduler()
     print("[Server] Watcher/FTP scheduler stopped.")
 

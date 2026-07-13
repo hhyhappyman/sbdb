@@ -409,7 +409,12 @@ def start_watching() -> dict:
         }
 
 
-def stop_watching() -> dict:
+def stop_watching(persist: bool = True) -> dict:
+    """
+    폴더 감시 중지.
+    persist=True  : 사용자가 직접 끈 경우 → watcher_enabled='0' 저장(재시작 후에도 꺼짐 유지)
+    persist=False : 서버 종료(shutdown) 시 → 설정값은 그대로 두어, 다음 시작 때 자동 재개되게 함
+    """
     global _observer
 
     with _lock:
@@ -420,10 +425,11 @@ def stop_watching() -> dict:
         _observer.join(timeout=3)
         _observer = None
 
-        with get_apst_conn() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('watcher_enabled','0')"
-            )
+        if persist:
+            with get_apst_conn() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('watcher_enabled','0')"
+                )
 
         _add_log("info", "폴더 감시 중지")
         return {"status": "stopped", "message": "폴더 감시를 중지했습니다."}
