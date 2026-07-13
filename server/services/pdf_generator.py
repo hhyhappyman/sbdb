@@ -44,34 +44,37 @@ def _try_register(name: str, path: str) -> bool:
         return False
 
 
-def _find_korean_font() -> str | None:
+def _korean_font_candidates() -> list[str]:
     """
-    한글 지원 폰트 파일 경로를 찾는다.
-    ① 자주 쓰는 고정 경로(Ubuntu/WSL/Windows) → ② 폰트 디렉터리 재귀 검색(Amazon Linux 등).
+    한글 지원 폰트 후보 파일 경로 목록(우선순위 순).
+    reportlab은 TrueType(glyf)만 등록 가능하고 Noto CJK 같은 CFF/OpenType는 실패하므로,
+    TrueType(.ttf, 특히 Nanum)을 먼저, 그다음 나머지를 시도하도록 정렬한다.
     """
     fixed = [
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "C:/Windows/Fonts/malgun.ttf",
         "/mnt/c/Windows/Fonts/malgun.ttf",
     ]
-    for p in fixed:
-        if os.path.exists(p):
-            return p
+    result = [p for p in fixed if os.path.exists(p)]
 
-    # Amazon Linux/기타: 폰트 디렉터리를 재귀 검색해 한글 폰트 파일명을 찾는다.
     import glob
-    keywords = ("NanumGothic", "NotoSansCJK", "NotoSansKR", "UnDotum", "malgun", "NanumBarun")
-    for root in ("/usr/share/fonts", os.path.expanduser("~/.fonts"), "/usr/local/share/fonts"):
+    keywords = ("NanumGothic", "NanumBarun", "UnDotum", "malgun", "NotoSansKR", "NotoSansCJK")
+    ttf_first: list[str] = []
+    others: list[str] = []
+    for root in (os.path.expanduser("~/.fonts"), "/usr/local/share/fonts", "/usr/share/fonts"):
         if not os.path.isdir(root):
             continue
         for ext in ("ttf", "ttc", "otf"):
-            for f in glob.glob(f"{root}/**/*.{ext}", recursive=True):
-                base = os.path.basename(f)
-                if any(k.lower() in base.lower() for k in keywords):
-                    return f
-    return None
+            for f in sorted(glob.glob(f"{root}/**/*.{ext}", recursive=True)):
+                base = os.path.basename(f).lower()
+                if not any(k.lower() in base for k in keywords):
+                    continue
+                (ttf_first if ext == "ttf" else others).append(f)
+    # 중복 제거하며 순서 유지
+    ordered = result + ttf_first + others
+    seen = set()
+    return [p for p in ordered if not (p in seen or seen.add(p))]
 
 
 def _register_fonts() -> str:
@@ -80,16 +83,16 @@ def _register_fonts() -> str:
     if _FONT_REGISTERED:
         return "KoreanFont"
 
-    path = _find_korean_font()
-    if path and _try_register("KoreanFont", path):
+    for path in _korean_font_candidates():
+        if not _try_register("KoreanFont", path):
+            continue   # CFF/OpenType(Noto CJK 등) 등록 실패 → 다음 후보
         # Bold 변형 파일이 있으면 사용, 없으면 Regular를 Bold로도 등록
         bold_path = (path.replace("Regular", "Bold")
                          .replace("NanumGothic", "NanumGothicBold")
                          .replace("malgun.ttf", "malgunbd.ttf"))
-        if bold_path != path and os.path.exists(bold_path) and _try_register("KoreanFont-Bold", bold_path):
-            pass
-        else:
-            _try_register("KoreanFont-Bold", path)   # 볼드 파일 없으면 동일 폰트로 대체
+        if not (bold_path != path and os.path.exists(bold_path)
+                and _try_register("KoreanFont-Bold", bold_path)):
+            _try_register("KoreanFont-Bold", path)
         _FONT_REGISTERED = True
         return "KoreanFont"
 
