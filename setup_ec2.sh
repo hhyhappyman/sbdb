@@ -36,6 +36,21 @@ fi
 echo "  Python: $($PY --version)"
 echo "  Node:   $(node --version 2>/dev/null || echo '미설치')"
 
+# ── 1-b. 한글 폰트(NanumGothic, TrueType) 설치 ────────────────
+# PDF/Word 한글 렌더링용. reportlab은 TrueType만 지원하므로 CFF 방식인 Noto CJK가
+# 아니라 TrueType인 NanumGothic을 ~/.fonts 에 받는다. (앱 코드가 ~/.fonts 를 검색)
+echo "[1-b] 한글 폰트(NanumGothic) 설치..."
+FONT_DIR="$HOME/.fonts"
+mkdir -p "$FONT_DIR"
+_NG_BASE="https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic"
+for _f in NanumGothic-Regular.ttf NanumGothic-Bold.ttf; do
+  if [ ! -s "$FONT_DIR/$_f" ]; then
+    curl -fsSL "$_NG_BASE/$_f" -o "$FONT_DIR/$_f" || echo "  ⚠️ $_f 다운로드 실패 (수동 설치 필요)"
+  fi
+done
+command -v fc-cache >/dev/null 2>&1 && fc-cache -f "$FONT_DIR" >/dev/null 2>&1 || true
+echo "  설치된 한글 폰트: $(ls "$FONT_DIR"/NanumGothic-*.ttf 2>/dev/null | wc -l)개"
+
 # ── 2. 소스 clone / pull ──────────────────────────────────────
 echo "[2/5] 소스 내려받기..."
 if [ -d "$APP_DIR/.git" ]; then
