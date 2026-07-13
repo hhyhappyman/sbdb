@@ -102,14 +102,13 @@ def _insert_manual_segments(segments: list[dict]) -> int:
 
     # 구간별 source_file("manual:로그파일:트리거ID")을 미리 계산.
     # 이미 적재된 구간은 추출(로그 파싱) 전에 걸러내 성능을 확보한다.
+    # DDR1 로그가 아직 없으면(폴더 감시에서 APST가 DDR1보다 먼저 도착한 경우 등)
+    # 조용히 건너뛴다. 파일이 도착하면 재적재(reconcile) 때 다시 시도되고,
+    # 실제 누락은 달력 붉은색(3파일 존재 점검)으로 이미 표시되므로 별도 경고를 남기지 않는다.
     seg_src: list[tuple[dict, str]] = []
     for seg in segments:
         log_path = log_files_by_date.get(seg["broadcast_date"])
         if not log_path:
-            log_event(
-                "warning", "file_missing",
-                f"DDR1 로그 파일을 찾을 수 없습니다 (날짜: {seg['broadcast_date']}, ddr1_dir: '{ddr1_dir}')"
-            )
             continue
         seg_src.append((seg, f"manual:{Path(log_path).name}:{seg['trigger_clip_id']}"))
 

@@ -7,9 +7,24 @@ GET  /api/ftp/test                   → FTP 접속 테스트
 
 from fastapi import APIRouter, Query, HTTPException
 
-from services.ftp_fetcher import fetch_and_ingest, fetch_yesterday, _download_date, _get_conf
+from services.ftp_fetcher import (
+    fetch_and_ingest, fetch_yesterday, _download_date, _get_conf,
+    _is_watcher_enabled, refresh_fetch_status,
+)
 
 router = APIRouter(prefix="/api/ftp", tags=["ftp"])
+
+
+def _reingest_local(date: str) -> dict:
+    """
+    폴더 감시 모드용: FTP를 쓰지 않고 로컬 폴더의 파일로 재적재 + 달력 상태 갱신.
+    (EC2 등 FTP 서버에 접근 불가한 환경에서 붉은날짜 클릭 시 사용)
+    """
+    from routers.ingest import ingest_date
+    res = ingest_date(date)
+    status = refresh_fetch_status(date)
+    return {"date": date, "ok": status["ok"], "mode": "watch",
+            "ingested": res, "missing_kinds": status.get("missing_kinds", [])}
 
 
 @router.get("/test")
@@ -36,11 +51,20 @@ def ftp_test() -> dict:
 
 @router.post("/fetch")
 def ftp_fetch(date: str = Query(..., description="YYYY-MM-DD")) -> dict:
-    """지정한 날짜의 파일을 FTP에서 가져와 적재."""
+    """
+    지정한 날짜의 파일을 가져와 적재.
+    - 폴더 감시 모드: FTP를 쓰지 않고 로컬 파일로 재적재(FTP 미접근 환경 대응)
+    - 그 외: FTP에서 다운로드 후 적재
+    """
+    if _is_watcher_enabled():
+        return _reingest_local(date)
     return fetch_and_ingest(date)
 
 
 @router.post("/fetch-yesterday")
 def ftp_fetch_yesterday() -> dict:
-    """전날 파일을 지금 즉시 가져와 적재."""
+    """전날 파일을 지금 즉시 가져와 적재 (폴더 감시 모드면 로컬 재적재)."""
+    from datetime import date as _d, timedelta as _td
+    if _is_watcher_enabled():
+        return _reingest_local((_d.today() - _td(days=1)).isoformat())
     return fetch_yesterday()

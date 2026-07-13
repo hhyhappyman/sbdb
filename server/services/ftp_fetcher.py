@@ -239,10 +239,9 @@ def _scheduler_loop():
                     # 대신 전날 파일이 폴더 감시로 적재됐는지 점검해, 미적재면 달력에
                     # 붉은색(누락)으로 표시한다.
                     if _is_watcher_enabled():
+                        # 폴더 감시 모드에서는 FTP 가져오기를 하지 않는다(로그도 남기지 않음).
+                        # 전날 파일이 폴더 감시로 적재됐는지만 조용히 점검한다.
                         y = (date_cls.today() - timedelta(days=1)).isoformat()
-                        log_event("info", "watch",
-                                  f"폴더 감시 모드 — FTP 자동 가져오기 건너뜀. "
-                                  f"전날({y}) 파일 존재 여부 점검")
                         refresh_fetch_status(y)
                         _last_run_date = today
                         _sched_stop.wait(30)
