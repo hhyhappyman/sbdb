@@ -90,6 +90,27 @@ def _find_manual_windows_for_date(broadcast_date: str) -> list[tuple[str, str]]:
 
 
 # ── 적재 함수 ──────────────────────────────────────────────────────────────────
+def _reconcile_date(date: str):
+    """
+    해당 날짜의 CML → APST → DDR1(수동송출)을 순서 보장하여 재적재한다.
+    앱 내 가져오기와 동일한 ingest_date()를 사용하므로, 폴더 감시에서 파일이
+    어떤 순서로 도착해도(예: DDR1이 APST보다 늦게 도착) 수동송출까지 정상 생성된다.
+    (ingest_date는 중복검사가 있어 반복 호출해도 안전.) 이어서 달력 상태를 갱신한다.
+    """
+    from routers.ingest import ingest_date
+    from services.ftp_fetcher import refresh_fetch_status
+    try:
+        res = ingest_date(date)
+        _add_log("info",
+                 f"[감시] {date} 재적재: APST {res['apst']}건 · 수동 {res['manual']}건 · CML {res['cml']}건")
+    except Exception as e:
+        _add_log("error", f"[감시] {date} 재적재 오류: {e}")
+    try:
+        refresh_fetch_status(date)
+    except Exception:
+        pass
+
+
 def _ingest_apst(file_path: str):
     """APST 파일 적재. 이미 처리된 파일은 건너뜀."""
     fname = Path(file_path).name
@@ -123,17 +144,10 @@ def _ingest_apst(file_path: str):
         _add_log("info", f"[APST] 자동 적재 완료: {fname} ({len(records)}건)")
         log_event("info", "db_insert", f"APST 자동 적재: {fname} ({len(records)}건)")
 
-        # 적재 후 해당 날짜의 세 파일(APST/DDR1/CML) 존재 여부로 달력 상태를 갱신한다.
-        # (모두 있으면 ok=붉은색 해제, 하나라도 없으면 missing 유지)
+        # CML/APST/DDR1 순서 보장 재적재(수동송출 포함) + 달력 상태(daily_fetch) 갱신
         bdate = _date_from_filename(fname)
         if bdate:
-            from services.ftp_fetcher import refresh_fetch_status
-            refresh_fetch_status(bdate)
-
-        segments = find_manual_segments(file_path)
-        manual_inserted = _ingest_manual_segments(segments)
-        if manual_inserted:
-            _add_log("info", f"[APST] 수동 송출 구간 적재 완료: {fname} ({manual_inserted}건)")
+            _reconcile_date(bdate)
     except Exception as e:
         _add_log("error", f"[APST] 오류: {fname} — {e}")
 
@@ -236,69 +250,28 @@ def _ingest_cml(file_path: str):
             )
         _add_log("info", f"[CML] 자동 갱신 완료: {fname} ({len(rows)}건)")
         log_event("info", "db_update", f"CML 매핑 자동 갱신: {fname} ({len(rows)}건)")
+
+        # CML이 (APST보다 늦게) 도착한 경우에도 해당 날짜 수동송출을 생성/갱신
+        bdate = _date_from_filename(fname)
+        if bdate:
+            _reconcile_date(bdate)
     except Exception as e:
         _add_log("error", f"[CML] 오류: {fname} — {e}")
 
 
 def _ingest_ddr1(file_path: str):
-    """DDR1 로그 파일 적재."""
+    """
+    DDR1 로그 파일 감지 → 해당 날짜 전체를 재적재한다.
+    수동송출은 APST 기준으로 추출되므로, DDR1 로그가 (APST보다 늦게) 도착하면
+    여기서 ingest_date를 호출해 수동송출을 생성한다. (도착 순서 무관 보장)
+    """
     fname = Path(file_path).name
-
-    with get_ddr1_conn() as conn:
-        exists = conn.execute(
-            "SELECT 1 FROM broadcasts WHERE source_file = ? LIMIT 1", (fname,)
-        ).fetchone()
-    if exists:
-        _add_log("info", f"[DDR1] 이미 처리됨, 건너뜀: {fname}")
-        return
-
     broadcast_date = _date_from_filename(fname)
     if not broadcast_date:
         _add_log("error", f"[DDR1] 파일명에서 날짜 추출 불가, 건너뜀: {fname}")
         return
-
-    with get_ddr1_conn() as conn:
-        rows = conn.execute("SELECT * FROM clip_map").fetchall()
-    cml_map = {
-        r["clip_id"]: {
-            "full_name": r["full_name"],
-            "advertiser": r["advertiser"],
-            "duration_sec": r["duration_sec"],
-        }
-        for r in rows
-    }
-    if not cml_map:
-        _add_log("error", f"[DDR1] clip_map 비어 있음 — CML 파일을 먼저 적재하세요: {fname}")
-        return
-
-    campaign_names = get_campaign_names()
-
-    try:
-        time.sleep(1.5)
-        exclude_windows = _find_manual_windows_for_date(broadcast_date)
-        records = parse_ddr1(
-            file_path,
-            broadcast_date=broadcast_date,
-            cml_map=cml_map,
-            campaign_names=campaign_names,
-            source_file=fname,
-            exclude_windows=exclude_windows,
-        )
-        with get_ddr1_conn() as conn:
-            conn.executemany(
-                """INSERT INTO broadcasts
-                   (broadcast_date, broadcast_time, broadcast_hour,
-                    clip_id, item_name_raw, item_name,
-                    content_type_label, grade, duration_sec, source_file)
-                   VALUES
-                   (:broadcast_date, :broadcast_time, :broadcast_hour,
-                    :clip_id, :item_name_raw, :item_name,
-                    :content_type_label, :grade, :duration_sec, :source_file)""",
-                records,
-            )
-        _add_log("info", f"[DDR1] 자동 적재 완료: {fname} ({len(records)}건, {broadcast_date})")
-    except Exception as e:
-        _add_log("error", f"[DDR1] 오류: {fname} — {e}")
+    time.sleep(1.5)   # 파일 쓰기 완료 대기
+    _reconcile_date(broadcast_date)
 
 
 # ── 이벤트 핸들러 ─────────────────────────────────────────────────────────────

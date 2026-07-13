@@ -28,6 +28,7 @@ upload_to_github.sh
 
 # ── FTP/EC2 접속 정보 포함 스크립트 (업로드 제외) ──────
 ftp_to_ec2.sh
+ftp_to_ec2_dayinput.sh
 wsl_to_ec2_rsync.sh
 
 # ── 보안 키 (SSH/EC2 개인키 — 절대 업로드 금지) ────────
