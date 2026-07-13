@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import CORS_ORIGINS
 from database import init_db
-from services.file_watcher import stop_watching
+from services.file_watcher import stop_watching, auto_start_if_enabled
 from services.ftp_fetcher import start_scheduler, stop_scheduler
 from routers import (
     auth,
@@ -116,8 +116,10 @@ async def ip_whitelist(request: Request, call_next):
 def on_startup():
     init_db()
     print("[Server] DB initialized. Ready.")
-    # FTP 자동 가져오기 스케줄러 시작 (폴더 실시간 감시를 대체)
+    # FTP 자동 가져오기 스케줄러 시작
     start_scheduler()
+    # 환경설정에서 폴더 감시가 켜져 있던 경우(watcher_enabled='1') 재시작 시 자동 재개
+    auto_start_if_enabled()
 
 
 @app.on_event("shutdown")
