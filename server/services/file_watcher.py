@@ -234,8 +234,12 @@ def _ingest_manual_segments(segments: list[dict]) -> int:
     return len(records)
 
 
-def _ingest_cml(file_path: str):
-    """CML 파일 적재 (clip_map 갱신)."""
+def _ingest_cml(file_path: str, reconcile: bool = True):
+    """
+    CML 파일 적재 (clip_map 갱신).
+    reconcile=True : 실시간 이벤트 — CML이 APST보다 늦게 도착한 경우 해당 날짜 재적재.
+    reconcile=False: 초기 스캔 — clip_map만 갱신(무거운 재적재 연쇄를 하지 않음).
+    """
     fname = Path(file_path).name
     try:
         time.sleep(1.5)
@@ -249,12 +253,16 @@ def _ingest_cml(file_path: str):
                 rows,
             )
         _add_log("info", f"[CML] 자동 갱신 완료: {fname} ({len(rows)}건)")
-        log_event("info", "db_update", f"CML 매핑 자동 갱신: {fname} ({len(rows)}건)")
+        # 초기 스캔(reconcile=False)에서는 활동 로그(DB)에 남기지 않아 로그 폭주를 막는다.
+        if reconcile:
+            log_event("info", "db_update", f"CML 매핑 자동 갱신: {fname} ({len(rows)}건)")
 
-        # CML이 (APST보다 늦게) 도착한 경우에도 해당 날짜 수동송출을 생성/갱신
-        bdate = _date_from_filename(fname)
-        if bdate:
-            _reconcile_date(bdate)
+        # CML이 (APST보다 늦게) 실시간 도착한 경우에만 해당 날짜 수동송출을 재생성.
+        # 초기 스캔(reconcile=False)에서는 clip_map만 갱신하고 재적재 연쇄를 하지 않는다.
+        if reconcile:
+            bdate = _date_from_filename(fname)
+            if bdate:
+                _reconcile_date(bdate)
     except Exception as e:
         _add_log("error", f"[CML] 오류: {fname} — {e}")
 
@@ -332,18 +340,29 @@ def _get_setting_value(key: str) -> str:
     return row["value"] if row else ""
 
 
+_scan_running = False
+
+
 def _initial_scan():
     """
     감시 시작 시, 폴더에 이미 존재하는 미적재 파일을 일괄 적재한다.
     (감시기는 '시작 이후 새로 들어오는' 파일만 감지하므로, 먼저 업로드된 파일도
      처리되도록 CML → APST → DDR1 순서로 스캔한다. 이미 처리된 파일은 자동 건너뜀.)
+    중복 실행 방지: 이미 스캔 중이면 건너뛴다.
     """
+    global _scan_running
+    if _scan_running:
+        _add_log("info", "[감시] 초기 스캔이 이미 진행 중 — 중복 실행 건너뜀")
+        return
+    _scan_running = True
+
     apst_dir, ddr1_dir = _get_dirs()
     cml_dir = _get_setting_value("cml_path")
     try:
+        # CML은 clip_map만 갱신(재적재 연쇄 없음). 실제 재적재는 아래 APST 단계에서 수행.
         if cml_dir and Path(cml_dir).is_dir():
             for f in sorted(Path(cml_dir).glob("*.cml")):
-                _ingest_cml(str(f))
+                _ingest_cml(str(f), reconcile=False)
         if apst_dir and Path(apst_dir).is_dir():
             for f in sorted(Path(apst_dir).glob("*.apst")):
                 _ingest_apst(str(f))
@@ -353,6 +372,8 @@ def _initial_scan():
         _add_log("info", "[감시] 기존 파일 초기 스캔 완료")
     except Exception as e:
         _add_log("error", f"[감시] 초기 스캔 오류: {e}")
+    finally:
+        _scan_running = False
 
 
 def start_watching() -> dict:
