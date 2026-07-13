@@ -327,7 +327,7 @@ export default function PeriodView() {
             rowKey={(_, i) => i}
             size="small"
             pagination={{
-              pageSize: 50,
+              defaultPageSize: 50,
               showTotal: t => `총 ${t}건`,
               showSizeChanger: true,
               pageSizeOptions: ['50', '100', '200'],

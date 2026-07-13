@@ -1036,12 +1036,14 @@ function GongikJaenanMonthlyTab() {
           <Card title={`공익광고 송출내역 (${data.year}년 ${data.month}월, 총 ${data.campaign.length}건)`}
             style={{ marginBottom: 20 }}>
             <Table columns={GONGIK_COLS} dataSource={data.campaign.map((r, i) => ({ ...r, _k: i }))}
-              rowKey="_k" size="small" pagination={{ pageSize: 50, showTotal: t => `총 ${t}건` }}
+              rowKey="_k" size="small"
+              pagination={{ defaultPageSize: 50, showTotal: t => `총 ${t}건`, showSizeChanger: true, pageSizeOptions: ['50', '100', '200'] }}
               scroll={{ y: 400 }} />
           </Card>
           <Card title={`재난피해 사전예방 송출내역 (${data.year}년 ${data.month}월, 총 ${data.disaster.length}건)`}>
             <Table columns={JAENAN_COLS} dataSource={data.disaster.map((r, i) => ({ ...r, _k: i }))}
-              rowKey="_k" size="small" pagination={{ pageSize: 50, showTotal: t => `총 ${t}건` }}
+              rowKey="_k" size="small"
+              pagination={{ defaultPageSize: 50, showTotal: t => `총 ${t}건`, showSizeChanger: true, pageSizeOptions: ['50', '100', '200'] }}
               scroll={{ y: 400 }} />
           </Card>
         </div>

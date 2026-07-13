@@ -197,6 +197,7 @@ export default function Dashboard() {
                   pageSize,
                   size: 'small',
                   showTotal: t => `총 ${t}종`,
+                  showSizeChanger: false,   // 페이지당 개수는 상단 커스텀 Select로만 변경
                   onChange: (page) => {
                     setCurrentPage(page)
                     save({ currentPage: page })
