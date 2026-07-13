@@ -286,6 +286,7 @@
 - [x] **FTP ↔ 폴더 감시 상호 배타** — 예약 시각에 `watcher_enabled`(폴더 감시)가 ON이면 FTP 자동 가져오기를 건너뜀(둘 중 하나만 동작). 수동 가져오기 버튼은 영향 없음
 - [x] **폴더 감시 모드 누락일 표시** — 감시 모드에서 예약 시각에 전날 파일 존재 여부를 점검(`refresh_fetch_status`)해 미완이면 `missing`으로 기록 → 달력 붉은색. 이후 감시기가 늦게 적재하면 `_ingest_apst`가 상태를 재평가해 자동 갱신
 - [x] **감시 시작 시 기존 파일 초기 스캔** — `start_watching`이 `_initial_scan`(CML→APST→DDR1, 이미 처리된 건 건너뜀)을 백그라운드 실행 → 파일을 먼저 올리고 감시를 켜도 자동 적재·붉은색 해제
+- [x] **폴더 감시 순서 의존성 버그 수정** — 감시는 파일별 개별 이벤트라 APST가 DDR1/CML보다 먼저 처리되면 수동송출이 누락되던 문제. 감시 3핸들러(`_ingest_apst/_ddr1/_cml`)가 공통 `_reconcile_date(date)`를 거쳐 앱과 동일한 `ingest_date()`(CML→APST→DDR1 순서 보장 + 중복검사)를 실행하도록 변경 → **파일 도착 순서 무관하게 수동송출 생성** + `refresh_fetch_status`로 붉은색 자동 해제. (기존 감시 전용 DDR1 로그 탐색이 `.log`를 못 찾던 문제도 `ingest_date` 경로가 `*.Log`/`*.log` 모두 검색해 우회)
 - [x] **누락 판정 3파일 확대** — `refresh_fetch_status(date)` 신규: 로컬 폴더의 APST/DDR1/CML 존재 여부로 판정(모두 있으면 ok, 하나라도 없으면 missing + 없는 파일 종류 메시지). FTP·폴더감시·감시기 적재 후처리 공용 사용(기존 APST 단독 판정 대체)
 
 ### 7-4. 방송운행표(F-06) 표시·양식 개선
