@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import { Layout, Menu, Modal, Form, Input, Button, message, Tooltip } from 'antd'
 import {
@@ -15,7 +15,7 @@ import {
   FormOutlined,
 } from '@ant-design/icons'
 
-import { login, logout, workerLogin } from './api'
+import { login, logout, workerLogin, getSettings } from './api'
 
 import Dashboard      from './pages/Dashboard'
 import CalendarView   from './pages/CalendarView'
@@ -55,6 +55,7 @@ export default function App() {
   const navigate  = useNavigate()
   const [isAdmin, setIsAdmin]       = useState(false)
   const [isWorker, setIsWorker]     = useState(false)
+  const [companyShort, setCompanyShort] = useState('광주MBC')   // 환경설정 약칭 (좌측 로고)
   const [loginOpen, setLoginOpen]   = useState(false)
   const [workerOpen, setWorkerOpen] = useState(false)
   const [loginLoading, setLoginLoading] = useState(false)
@@ -63,6 +64,17 @@ export default function App() {
   const [wForm] = Form.useForm()
 
   const selectedKey = '/' + location.pathname.split('/')[1]
+
+  // 환경설정에서 약칭 로드 (좌측 상단 로고 + 브라우저 탭 제목)
+  useEffect(() => {
+    getSettings()
+      .then(s => {
+        const short = s?.company_short || '광주MBC'
+        setCompanyShort(short)
+        document.title = `${short} SB 송출 관리`   // 브라우저 탭 제목
+      })
+      .catch(() => {})
+  }, [])
 
   // 역할에 따라 메뉴 구성 (근무자 메뉴가 관리자 메뉴 위에 표시)
   const navItems = useMemo(() => {
@@ -163,7 +175,7 @@ export default function App() {
           borderBottom: '1px solid #1f3a55',
           lineHeight: 1.6,
         }}>
-          광주MBC<br />
+          {companyShort}<br />
           <span style={{ fontSize: 13, color: '#91caff' }}>SB 송출 관리</span>
         </div>
 

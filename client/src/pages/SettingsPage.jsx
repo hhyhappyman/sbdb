@@ -51,6 +51,20 @@ const FIELDS = [
   {
     section: '소재별 월 리포트(PDF) 표기 정보',
     items: [
+      {
+        name: 'company_name',
+        label: '회사명',
+        plain: true,
+        placeholder: '예: 광주문화방송',
+        help: <span>월 리포트 문서의 <b>회사명</b> 칸과 하단 <b>「○○(주)」</b>에 표기됩니다.</span>,
+      },
+      {
+        name: 'company_short',
+        label: '약칭',
+        plain: true,
+        placeholder: '예: 광주MBC',
+        help: <span>좌측 상단 로고와 월 리포트 <b>제목</b>에 표기됩니다. (예: 광주MBC, MBC경남)</span>,
+      },
       { name: 'ceo_name', label: '대표이사명', placeholder: '예: 홍길동' },
     ],
   },

@@ -192,6 +192,8 @@ def generate_monthly_pdf(
     """
     font = _register_fonts()
     bold = font + "-Bold" if font == "KoreanFont" else font
+    company = (settings.get("company_name") or "광주문화방송").strip() or "광주문화방송"
+    short = (settings.get("company_short") or "광주MBC").strip() or "광주MBC"
 
     # Output path (여러 소재명은 길거나 특수문자를 포함할 수 있어 안전하게 정리)
     _safe = str(item_name).replace("/", "_").replace("\\", "_")[:80]
@@ -219,7 +221,7 @@ def generate_monthly_pdf(
 
     # ── Title ──
     story.append(Paragraph(
-        "광주MBC 방송홍보 SB송출 현황",
+        f"{short} 방송홍보 SB송출 현황",
         ParagraphStyle("title", fontName=bold, fontSize=18,
                        alignment=TA_CENTER, spaceAfter=4 * mm),
     ))
@@ -241,7 +243,7 @@ def generate_monthly_pdf(
         _note, ParagraphStyle("note", fontName=font, fontSize=8, alignment=TA_LEFT, leading=10)
     )
     info_data = [
-        ["회 사 명",  "광주MBC",
+        ["회 사 명",  company,
          "사업자등록번호", "410-81-06350"],
         ["송출 내용",  item_name,
          "대 표 이 사", settings.get("ceo_name", "")],
@@ -344,7 +346,7 @@ def generate_monthly_pdf(
             ParagraphStyle("footer_l", fontName=font, fontSize=10, alignment=TA_LEFT),
         ),
         Paragraph(
-            "광주문화방송(주)",
+            f"{company}(주)",
             ParagraphStyle("footer_r", fontName=bold, fontSize=10, alignment=TA_RIGHT),
         ),
     ]]

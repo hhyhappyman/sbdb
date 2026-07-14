@@ -26,10 +26,11 @@ Thumbs.db
 # ── 업로드 스크립트 (PAT 토큰 포함 — 절대 업로드 금지) ─
 upload_to_github.sh
 
-# ── FTP/EC2 접속 정보 포함 스크립트 (업로드 제외) ──────
+# ── FTP/EC2/서버 접속 정보 포함 스크립트 (업로드 제외) ──
 ftp_to_ec2.sh
 ftp_to_ec2_dayinput.sh
 wsl_to_ec2_rsync.sh
+wsl_to_ubuntu_rsync.sh
 
 # ── 보안 키 (SSH/EC2 개인키 — 절대 업로드 금지) ────────
 *.pem
@@ -39,3 +40,9 @@ id_rsa.pub
 
 # ── 문서 (업로드 제외) ────────────────────────────────
 README.md
+
+# ── 매뉴얼 생성 산출물 (캡처 스크립트에 비밀번호 포함) ─
+capture_shots.py
+make_manual.py
+manual_shots/
+*.docx

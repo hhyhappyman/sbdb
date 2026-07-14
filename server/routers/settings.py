@@ -20,6 +20,8 @@ class SettingsUpdate(BaseModel):
     logo_path:       str | None = None
     seal_path:       str | None = None
     ceo_name:        str | None = None
+    company_name:    str | None = None
+    company_short:   str | None = None
     worker_id:       str | None = None
     worker_password: str | None = None
     ftp_host:        str | None = None

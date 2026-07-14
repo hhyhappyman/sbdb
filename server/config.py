@@ -39,6 +39,8 @@ SETTINGS_KEYS = [
     "ftp_password",    # FTP 로그인 비밀번호
     "ftp_fetch_time",  # 매일 전날 파일 자동 가져오기 시각 (HH:MM)
     "allowed_ip_ranges",  # 접근 허용 IP 대역 (콤마/줄바꿈 구분, 0.0.0.0=전체허용)
+    "company_name",    # 회사명 (예: 광주문화방송) — 월 리포트 회사명/푸터 표기
+    "company_short",   # 약칭   (예: 광주MBC)     — 좌측 로고/월 리포트 제목 표기
     "gongik_include_keywords",  # 공익으로 포함할 추가 소재명 키워드 (콤마 구분)
     "jaenan_include_keywords",  # 재난으로 포함할 추가 소재명 키워드 (콤마 구분)
     "gongik_jaenan_exclude_keywords",  # 공익/재난에서 제외할 소재명 키워드 (콤마 구분)
@@ -47,6 +49,10 @@ SETTINGS_KEYS = [
 # 접근 허용 IP 대역 기본값 (환경설정 미입력 시 사용) — 광주MBC 사내망
 ALLOWED_IP_RANGES_DEFAULT = "218.237.3.0/24"
 
+# 회사명/약칭 기본값 (환경설정 미입력 시 사용)
+COMPANY_NAME_DEFAULT = "광주문화방송"
+COMPANY_SHORT_DEFAULT = "광주MBC"
+
 # 공익/재난 포함·제외 키워드 기본값 (환경설정 미입력 시 사용)
 GONGIK_INCLUDE_KEYWORDS_DEFAULT = "학교폭력예방"
 JAENAN_INCLUDE_KEYWORDS_DEFAULT = ""
@@ -54,7 +60,7 @@ GONGIK_JAENAN_EXCLUDE_KEYWORDS_DEFAULT = ""
 
 # --- Admin ---
 ADMIN_ID = "admin"
-ADMIN_PASSWORD_DEFAULT = "admin"
+ADMIN_PASSWORD_DEFAULT = "admin2450"
 
 # --- Worker (근무자) ---
 WORKER_ID_DEFAULT = "user"

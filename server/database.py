@@ -16,6 +16,7 @@ from config import (
     ALLOWED_IP_RANGES_DEFAULT,
     GONGIK_INCLUDE_KEYWORDS_DEFAULT, JAENAN_INCLUDE_KEYWORDS_DEFAULT,
     GONGIK_JAENAN_EXCLUDE_KEYWORDS_DEFAULT,
+    COMPANY_NAME_DEFAULT, COMPANY_SHORT_DEFAULT,
 )
 
 
@@ -219,6 +220,8 @@ def init_db() -> None:
     _backfill_grade(conn)
     # 최초 설치 시에만 채우는 시딩 기본값 (빈 값으로 비워도 복구하지 않음)
     _seed_defaults = {
+        "company_name":                   COMPANY_NAME_DEFAULT,
+        "company_short":                  COMPANY_SHORT_DEFAULT,
         "gongik_include_keywords":        GONGIK_INCLUDE_KEYWORDS_DEFAULT,
         "jaenan_include_keywords":        JAENAN_INCLUDE_KEYWORDS_DEFAULT,
         "gongik_jaenan_exclude_keywords": GONGIK_JAENAN_EXCLUDE_KEYWORDS_DEFAULT,

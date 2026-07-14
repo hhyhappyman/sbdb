@@ -206,9 +206,11 @@ def _footer_note(doc: Document, text: str):
 # ── F-04 : 소재별 월 리포트 ──────────────────────────────────────────────────
 
 def generate_monthly_docx(item_name, year, month, days, advertiser, settings) -> str:
+    company = (settings.get("company_name") or "광주문화방송").strip() or "광주문화방송"
+    short = (settings.get("company_short") or "광주MBC").strip() or "광주MBC"
     doc = _new_doc()
     _set_page(doc, 15)
-    _title(doc, "광주MBC 방송홍보 SB송출 현황", 18)
+    _title(doc, f"{short} 방송홍보 SB송출 현황", 18)
 
     last_day = calendar.monthrange(year, month)[1]
     wd_s = _DAY_OF_WEEK_KO[date_type(year, month, 1).weekday()]
@@ -221,7 +223,7 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
     info.alignment = WD_TABLE_ALIGNMENT.LEFT
     note = advertiser.get("note") or "송출시간은 방송사 상황에 따라 변동될 수 있음"
     rows = [
-        ["회 사 명", "광주MBC", "사업자등록번호", "410-81-06350"],
+        ["회 사 명", company, "사업자등록번호", "410-81-06350"],
         ["송출 내용", item_name, "대 표 이 사", settings.get("ceo_name", "")],
         ["송출 매체", advertiser.get("broadcast_medium", "TV"), "업 태·업 종", "서비스·방송"],
         ["송출 기간", period, "비  고", note],
@@ -271,7 +273,7 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
     pr = doc.add_paragraph()
     pr.paragraph_format.space_after = Pt(0)
     pr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    r = pr.add_run("광주문화방송(주)")
+    r = pr.add_run(f"{company}(주)")
     r.bold = True
     r.font.size = Pt(11)
 
