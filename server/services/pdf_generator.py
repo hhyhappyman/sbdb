@@ -301,7 +301,8 @@ def generate_monthly_pdf(
             _format_date_ko(date_str),
             wd,
             str(cnt) if cnt else "",
-            times_str,
+            # 시간이 많아 칸을 넘치면 자동 줄바꿈(Paragraph). 빈 값은 그대로 둔다.
+            _wrap_cell(times_str, font, size=8) if times_str else "",
             "-",
             "-",
         ])

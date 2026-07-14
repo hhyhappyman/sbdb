@@ -9,7 +9,7 @@ from datetime import datetime, date as date_type
 from docx import Document
 from docx.shared import Pt, RGBColor, Mm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ROW_HEIGHT_RULE
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_ALIGN_VERTICAL
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
@@ -257,7 +257,9 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
         cells = table.add_row().cells
         vals = [f"{year % 100}. {month}. {day_num}", wd, str(cnt) if cnt else "", times, "-", "-"]
         for i, v in enumerate(vals):
-            _set_cell(cells[i], v, align="left" if i == 3 else "center", size=8)
+            # PDF처럼 모든 칸 가운데 정렬 (TV 시간 포함) + 세로 가운데(여러 줄일 때 정렬)
+            _set_cell(cells[i], v, align="center", size=8)
+            cells[i].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     cells = table.add_row().cells
     for i, v in enumerate(["총 계", f"{last_day} 일", f"{total} 회", f"총 {total} 회", "-", "-"]):
