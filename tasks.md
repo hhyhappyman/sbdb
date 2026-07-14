@@ -338,6 +338,20 @@
 - [x] `update.sh` — 재배포: git pull → 백엔드 의존성 갱신 → 프론트 재빌드 → 서비스 재시작
 - [x] `README.md` — 프로젝트 개요 + 로컬 개발 + EC2 배포(setup/service/run/update 스크립트) + GitHub 업로드 + 배포 확인사항 정리
 
+### 7-11. UI/운영 추가 개선
+- [x] **회사명·약칭 환경설정화** — `company_name`(기본 광주문화방송)·`company_short`(기본 광주MBC) 설정키 추가. 좌측 로고·브라우저 탭 제목=약칭, 월 리포트 제목=약칭, 회사명 칸=회사명, 하단 「○○(주)」=회사명. (부산MBC·MBC경남 등 자유 표기) 환경설정 '월 리포트 표기 정보' 맨 위 두 항목
+- [x] **페이지네이션 콤보박스 수정** — 상세조회·공익재난 월별의 고정 `pageSize`(controlled)를 `defaultPageSize`로 바꿔 콤보박스가 실제 동작하게, 대시보드는 하단 자동 콤보박스 제거(상단 커스텀 Select만)
+- [x] **로그 초기화 버튼** — 로그 기록 화면에 '로그 초기화'(관리자 로그인 시에만 표시) + `DELETE /api/logs`
+- [x] **폴더 감시 재시작 유지** — 종료(shutdown) 시 `stop_watching(persist=False)`로 `watcher_enabled`를 지우지 않고, 시작 시 `auto_start_if_enabled()`로 자동 재개 → 감시 ON 상태가 재시작/재부팅 후에도 유지
+- [x] **감시 초기 스캔 중복 방지 + CML 로그 억제** — `_initial_scan` 중복 실행 가드(`_scan_running`), 초기 스캔의 CML은 `reconcile=False`(clip_map만 갱신, 활동로그 미기록)로 로그 폭주 해결
+- [x] **관리자 기본 비밀번호** — `ADMIN_PASSWORD_DEFAULT` `admin` → `admin2450` (신규 빈 DB에만 적용)
+
+### 7-12. Ubuntu(사내 서버) 배포 자산
+- [x] `init_ubuntu.sh` — Ubuntu 초기 셋팅: 업데이트·필수도구·SSH·Python·Node·방화벽(22·8000)
+- [x] `setup_ubuntu.sh` — `setup_ec2.sh`의 apt 버전: 폰트·clone/pull·venv+pip·npm build·접근제한 IP 초기화
+- [x] `wsl_to_ubuntu_rsync.sh` — db/data를 비밀번호 SSH(ControlMaster로 1회 입력)로 우분투 서버에 전송(접속정보 포함 → .gitignore)
+- [x] 우분투 설치→sbdb 서버 구성 가이드 문서(6~9번 sbdb용으로 재작성)
+
 ---
 
 ## 현재 상태
