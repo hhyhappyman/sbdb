@@ -32,6 +32,13 @@ def log_event(level: str, category: str, message: str) -> None:
         pass
 
 
+def clear_logs() -> int:
+    """활동 로그 전체 삭제. 삭제된 건수를 반환."""
+    with get_apst_conn() as conn:
+        n = conn.execute("DELETE FROM activity_log").rowcount
+    return n
+
+
 def get_recent_logs(limit: int = 200) -> list[dict]:
     """최근 로그 최대 limit건 (최신순)."""
     with get_apst_conn() as conn:

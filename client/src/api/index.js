@@ -126,3 +126,6 @@ export const updateSettings = (data) =>
 // ── Logs ───────────────────────────────────────────────────────────────────
 export const getLogs = (limit = 200) =>
   api.get('/logs', { params: { limit } }).then(r => r.data)
+
+export const clearLogs = () =>
+  api.delete('/logs').then(r => r.data)

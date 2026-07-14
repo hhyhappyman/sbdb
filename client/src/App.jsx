@@ -245,7 +245,7 @@ export default function App() {
             <Route path="/calendar"    element={<CalendarView />} />
             <Route path="/period"      element={<PeriodView />} />
             <Route path="/report"      element={<ReportView />} />
-            <Route path="/logs"        element={<LogPage />} />
+            <Route path="/logs"        element={<LogPage isAdmin={isAdmin} />} />
             {/* 근무자 전용 라우트 */}
             <Route path="/worker"      element={isWorker ? <WorkerPage /> : <NotAllowedWorker />} />
             <Route path="/worker-keywords" element={isWorker ? <WorkerKeywordPage /> : <NotAllowedWorker />} />
