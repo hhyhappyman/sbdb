@@ -132,8 +132,9 @@ function MonthlyTab() {
     try {
       const candidates = await fetchItems(q, modalType)
       if (candidates.length === 1) {
-        // 결과가 정확히 1개일 때만 바로 조회
-        doReport(candidates[0].item_name)
+        // 결과가 정확히 1개면 바로 조회.
+        // item 상태를 '정확한 소재명'으로 갱신해야 PDF/Word 저장(item 사용)도 정상 동작.
+        selectItem(candidates[0].item_name)
         return
       }
       setSearchQuery(q)
