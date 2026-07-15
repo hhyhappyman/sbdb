@@ -345,6 +345,10 @@
 - [x] **폴더 감시 재시작 유지** — 종료(shutdown) 시 `stop_watching(persist=False)`로 `watcher_enabled`를 지우지 않고, 시작 시 `auto_start_if_enabled()`로 자동 재개 → 감시 ON 상태가 재시작/재부팅 후에도 유지
 - [x] **감시 초기 스캔 중복 방지 + CML 로그 억제** — `_initial_scan` 중복 실행 가드(`_scan_running`), 초기 스캔의 CML은 `reconcile=False`(clip_map만 갱신, 활동로그 미기록)로 로그 폭주 해결
 - [x] **관리자 기본 비밀번호** — `ADMIN_PASSWORD_DEFAULT` `admin` → `admin2450` (신규 빈 DB에만 적용)
+- [x] **브라우저 탭 제목 동적화** — 약칭 로드 시 `document.title = "{약칭} SB 송출 관리"`, `index.html` 기본값 `SB 송출 관리`
+- [x] **버그 수정: 월 리포트 단일 매칭 저장 빈 문서** — 검색 결과가 1개면 모달 없이 바로 조회하는데 `item` 상태가 입력한 부분 문자열로 남아 PDF/Word가 빈 문서로 저장되던 문제. 단일 매칭 시 `selectItem(정확한 소재명)`으로 `item`을 갱신해 화면·저장이 동일 소재명 사용
+- [x] **월 리포트 PDF TV 시간 칸 줄바꿈** — 횟수 많은 날(예: 11회) 시간 문자열이 칸을 넘쳐 겹치던 것을 `_wrap_cell`(Paragraph)로 감싸 자동 줄바꿈
+- [x] **월 리포트 Word TV 칸 가운데 정렬** — TV 시간 칸(기존 왼쪽) 가운데 정렬 + 세로 가운데(여러 줄 정렬)로 PDF와 통일
 
 ### 7-12. Ubuntu(사내 서버) 배포 자산
 - [x] `init_ubuntu.sh` — Ubuntu 초기 셋팅: 업데이트·필수도구·SSH·Python·Node·방화벽(22·8000)
