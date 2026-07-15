@@ -204,8 +204,8 @@ def generate_monthly_pdf(
         pagesize=A4,
         rightMargin=15 * mm,
         leftMargin=15 * mm,
-        topMargin=15 * mm,
-        bottomMargin=15 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,   # 위/아래 여백 동일. 행 높이는 아래에서 자동 계산.
     )
 
     W = A4[0] - 30 * mm   # usable width
@@ -322,8 +322,8 @@ def generate_monthly_pdf(
 
     style = _base_table_style() + [
         ("FONTSIZE",      (0, 0), (-1, -1), 8.5),
-        ("TOPPADDING",    (0, 0), (-1, -1), 3.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+        ("TOPPADDING",    (0, 0), (-1, -1), 2.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
         ("FONTNAME",   (0, 0), (-1, 0), bold),
         ("FONTSIZE",   (0, 0), (-1, 0), 9),
         ("BACKGROUND", (0, 0), (-1, 0), _HEADER_BG),
@@ -336,7 +336,7 @@ def generate_monthly_pdf(
     ]
     data_table.setStyle(TableStyle(style))
     story.append(data_table)
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, 3 * mm))
 
     # ── Footer ── (확인함 뒤 날짜 표기 제거)
     seal_path = settings.get("seal_path", "")
@@ -364,6 +364,45 @@ def generate_monthly_pdf(
         seal = Image(seal_path, width=18 * mm, height=18 * mm)
         seal.hAlign = "RIGHT"
         story.append(seal)
+
+    # ── 행 높이 자동 계산 (위/아래 여백 동일 + 한 페이지 채우기) ──
+    # 현재 story 전체 높이를 측정한 뒤, 남는 세로 공간을 표의 각 행에 고르게
+    # 분배하여 내용이 페이지를 꽉 채우도록 셀 상하 패딩을 다시 정한다.
+    # 내용이 많아 넘칠 때는 패딩이 최소값까지 줄어 자동으로 한 페이지에 맞춘다.
+    # 상·하 여백(12mm+12mm) + SimpleDocTemplate 프레임 기본 상하 패딩(6pt+6pt)을
+    # 제외한 실제 배치 가능 높이. 푸터(하단 확인문구)가 한 행이라 분할되지 않고
+    # 통째로 배치돼야 하므로, 측정 합계보다 실제 소요가 커지는 점을 감안해
+    # 안전 여유(20pt)를 더 빼 넘침(2페이지)을 방지한다.
+    frame_h = A4[1] - 24 * mm - 12 - 20
+
+    # 표를 제외한 나머지 요소(제목/정보표/여백/푸터 등)의 높이를 1회 측정한다.
+    # (실제 build에 쓰이는 story 객체는 데이터표를 제외하고만 wrap → 손상 없음)
+    others_h = sum(
+        f.wrap(W, 100000)[1] for f in story if f is not data_table
+    )
+
+    # 데이터표는 '측정 전용 복제본'으로만 반복 측정한다(실제 객체 손상 방지).
+    # 큰 패딩부터 0.1pt씩 낮추며, 한 페이지에 들어오는 가장 큰 값을 채택한다.
+    #  → 내용이 적으면 넉넉히 벌려 페이지를 채우고(위·아래 여백 균형),
+    #    내용이 많으면 자동으로 줄간격을 좁혀 한 페이지에 맞춘다.
+    chosen_pad = 1.4
+    pad = 6.0
+    while pad >= 1.4:
+        probe = Table(table_data, colWidths=col_w2)
+        probe.setStyle(TableStyle(style + [
+            ("TOPPADDING",    (0, 0), (-1, -1), pad),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
+        ]))
+        table_h = probe.wrap(W, 100000)[1]
+        if others_h + table_h <= frame_h:
+            chosen_pad = pad
+            break
+        pad -= 0.1
+
+    data_table.setStyle(TableStyle([
+        ("TOPPADDING",    (0, 0), (-1, -1), chosen_pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), chosen_pad),
+    ]))
 
     doc.build(story)
     return out_path

@@ -2,7 +2,8 @@
 #
 # systemd 서비스 등록 스크립트 (EC2 / Amazon Linux)
 # - 서버를 부팅 시 자동 시작하고, 크래시/재부팅 시 자동 복구되도록 등록한다.
-# - setup_ec2.sh 로 셋업(venv/빌드)을 마친 뒤 1회 실행한다.
+# - 셋업 스크립트(Amazon Linux: setup_ec2.sh / Ubuntu: setup_ubuntu.sh)로
+#   venv/빌드를 마친 뒤 1회 실행한다.
 #
 # 사용법:
 #   bash install_service.sh            # 서비스 등록 + 시작 + 부팅 자동시작 설정
@@ -30,7 +31,8 @@ fi
 
 # ── venv 확인 ─────────────────────────────────────────────────
 if [ ! -x "$APP_DIR/venv/bin/uvicorn" ]; then
-  echo "[오류] venv/uvicorn 이 없습니다. 먼저 setup_ec2.sh 로 셋업하세요."
+  echo "[오류] venv/uvicorn 이 없습니다. 먼저 셋업하세요."
+  echo "       (Ubuntu: bash setup_ubuntu.sh / Amazon Linux: bash setup_ec2.sh)"
   exit 1
 fi
 

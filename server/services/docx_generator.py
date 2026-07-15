@@ -182,6 +182,21 @@ def _compact_table(table, row_h_mm: float = 5.0, exact: bool = True):
         row.height_rule = rule
 
 
+def _estimate_wrap_lines(text: str, col_mm: float = 76.0,
+                         font_pt: float = 8.0, cell_pad_mm: float = 1.4) -> int:
+    """
+    Word는 렌더링 높이를 직접 잴 수 없어, 셀 폭과 글자 수로 줄바꿈 줄 수를 추정한다.
+    (숫자·공백 위주 문자열 기준: 한 글자 폭 ≈ 0.5em)
+    """
+    import math
+    if not text:
+        return 1
+    usable = max(1.0, col_mm - cell_pad_mm)          # 셀 좌우 안쪽 여백 제외
+    char_w = font_pt * 0.5 / 72.0 * 25.4             # 0.5em 을 mm 로 환산
+    per_line = max(1, int(usable / char_w))
+    return max(1, math.ceil(len(text) / per_line))
+
+
 def _small_gap(doc: Document, pt: float = 4):
     """표 사이 작은 간격 (빈 문단은 한 줄 높이를 차지해 페이지가 넘치므로 대체)."""
     p = doc.add_paragraph()
@@ -209,7 +224,7 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
     company = (settings.get("company_name") or "광주문화방송").strip() or "광주문화방송"
     short = (settings.get("company_short") or "광주MBC").strip() or "광주MBC"
     doc = _new_doc()
-    _set_page(doc, 15)
+    _set_page(doc, 12)   # PDF와 동일하게 상·하·좌·우 여백 12mm
     _title(doc, f"{short} 방송홍보 SB송출 현황", 18)
 
     last_day = calendar.monthrange(year, month)[1]
@@ -220,7 +235,8 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
     # 정보 표 (데이터 표와 동일하게 좌측 정렬 — 두 표의 좌측 여백을 맞춤)
     info = doc.add_table(rows=4, cols=4)
     info.style = "Table Grid"
-    info.alignment = WD_TABLE_ALIGNMENT.LEFT
+    # 좌우 여백을 동일하게: 표를 가운데 정렬(표 폭 170mm < 본문 폭이라 좌우 균등 배분)
+    info.alignment = WD_TABLE_ALIGNMENT.CENTER
     note = advertiser.get("note") or "송출시간은 방송사 상황에 따라 변동될 수 있음"
     rows = [
         ["회 사 명", company, "사업자등록번호", "410-81-06350"],
@@ -241,8 +257,10 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
 
     # 데이터 표
     table = _grid_table(doc, ["일 시", "요일", "횟수", "T V", "RADIO-AM", "RADIO-FM"])
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER   # 정보표와 함께 가운데 정렬(좌우 여백 동일)
     days_map = {d["date"]: d for d in days}
     total = 0
+    extra_lines = 0   # TV 시간 줄바꿈으로 늘어나는 총 추가 줄 수(행 높이 계산용)
     for day_num in range(1, last_day + 1):
         d = date_type(year, month, day_num)
         ds = d.strftime("%Y-%m-%d")
@@ -254,6 +272,7 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
             total += cnt
         else:
             cnt, times = 0, ""
+        extra_lines += _estimate_wrap_lines(times) - 1
         cells = table.add_row().cells
         vals = [f"{year % 100}. {month}. {day_num}", wd, str(cnt) if cnt else "", times, "-", "-"]
         for i, v in enumerate(vals):
@@ -265,19 +284,35 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
     for i, v in enumerate(["총 계", f"{last_day} 일", f"{total} 회", f"총 {total} 회", "-", "-"]):
         _set_cell(cells[i], v, bold=True, size=8)
     _set_col_widths(table, [24, 12, 14, 76, 22, 22])
-    # AT_LEAST: 한 줄이면 4.8mm로 조밀하게, 송출시간이 많은 날은 잘리지 않고 늘어남
-    _compact_table(table, row_h_mm=4.8, exact=False)
+
+    # ── 행 높이 자동 계산 (PDF처럼 위/아래 여백 균형 + 페이지 채우기) ──
+    # 가용 세로 높이에서 제목·정보표·간격·푸터(추정 고정분)를 뺀 나머지를
+    # 데이터 표의 각 행에 고르게 나눠, 내용이 적어도 표가 페이지를 채우게 한다.
+    # 줄바꿈으로 늘어나는 행(extra_lines)만큼 높이를 먼저 확보해 넘침을 막는다.
+    num_rows = last_day + 2                 # 머리글 + 일자(last_day) + 총계
+    usable_h = 297.0 - 24.0                 # A4 높이 - 상하 여백(12+12)
+    # 제목+정보표+간격+푸터의 실제 렌더 높이는 서버에서 정확히 잴 수 없어,
+    # 행 높이 6.6mm가 2페이지로 넘친(=푸터 밀림) 실측을 근거로 오버헤드를 넉넉히
+    # 잡아 한 페이지를 보장한다. (row_h ≈ 5.9mm 수준으로 수렴)
+    overhead_mm = 76.0
+    line_h_mm = 3.4                         # 8pt 한 줄 높이(추정)
+    avail_table = usable_h - overhead_mm - extra_lines * line_h_mm
+    row_h = avail_table / num_rows
+    row_h = max(4.8, min(6.2, row_h))       # 최소=조밀, 최대=넘침 방지 상한
+    # AT_LEAST: 계산 높이로 채우되, 줄바꿈 행은 잘리지 않고 더 늘어남
+    _compact_table(table, row_h_mm=row_h, exact=False)
 
     _small_gap(doc)
-    p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(0)
-    p.add_run("위와 같이 방송 송출 완료하였음을 확인함").font.size = Pt(10)
-    pr = doc.add_paragraph()
-    pr.paragraph_format.space_after = Pt(0)
-    pr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    r = pr.add_run(f"{company}(주)")
-    r.bold = True
-    r.font.size = Pt(11)
+    # 푸터: 확인 문구(좌, 10pt)와 회사명(우, 11pt)을 한 줄에 배치.
+    # 테두리 없는 2칸 표로 좌·우 정렬을 한 줄에 맞춘다(폰트 크기는 각각 유지).
+    ftbl = doc.add_table(rows=1, cols=2)
+    ftbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    lc, rc = ftbl.rows[0].cells
+    _set_cell(lc, "위와 같이 방송 송출 완료하였음을 확인함", align="left", size=10)
+    _set_cell(rc, f"{company}(주)", bold=True, align="right", size=11)
+    lc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    rc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    _set_col_widths(ftbl, [100, 70])   # 합계 170mm (위 표들과 동일 폭)
 
     safe_item = str(item_name).replace("/", "_").replace("\\", "_")[:80]
     out = str(REPORT_MONTHLY_DIR / f"SB송출현황_{safe_item}_{year}{month:02d}.docx")
