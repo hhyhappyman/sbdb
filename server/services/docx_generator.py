@@ -321,13 +321,11 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
 
 
 def _hhmm(time_str: str) -> str:
-    """'HH:MM:SS' → 4자리 방송 HHMM (00~04시는 +24h)."""
+    """'HH:MM:SS' → 4자리 HHMM (실제 시계 시각 그대로, 화면과 동일하게 +24 변환 없음)."""
     p = time_str.split(":")
     if len(p) < 2:
         return time_str
     h, m = int(p[0]), int(p[1])
-    if h < 5:
-        h += 24
     return f"{h:02d}{m:02d}"
 
 

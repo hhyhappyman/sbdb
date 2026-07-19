@@ -106,17 +106,16 @@ _DAY_OF_WEEK_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
 def _to_broadcast_hhmm(time_str: str) -> str:
     """
-    Convert 'HH:MM:SS' to 4-digit broadcast HHMM with 25-hour convention.
-    00:14:00 → '2414',  01:30:00 → '2530',  06:00:00 → '0600'
-    Times 00:00~04:59 are treated as next-day (add 24h).
+    Convert 'HH:MM:SS' to 4-digit HHMM (실제 시계 시각 그대로).
+    00:14:00 → '0014',  01:30:00 → '0130',  06:00:00 → '0600'
+    (broadcast_date가 달력 날짜 기준으로 적재되므로, 화면과 동일하게
+     0~4시도 +24 변환 없이 실제 시각으로 표기한다.)
     """
     parts = time_str.split(":")
     if len(parts) < 2:
         return time_str
     h = int(parts[0])
     m = int(parts[1])
-    if h < 5:
-        h += 24
     return f"{h:02d}{m:02d}"
 
 

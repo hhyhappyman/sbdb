@@ -322,6 +322,22 @@ class _Ddr1Handler(FileSystemEventHandler):
             self._handle(event.dest_path)
 
 
+class _CmlHandler(FileSystemEventHandler):
+    """CML 폴더 이벤트 핸들러. 늦게 도착한 CML도 감지해 해당 날짜 상태를 재판정한다."""
+
+    def _handle(self, path: str):
+        if Path(path).suffix.lower() == ".cml":
+            threading.Thread(target=_ingest_cml, args=(path,), daemon=True).start()
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self._handle(event.src_path)
+
+    def on_moved(self, event):
+        if not event.is_directory:
+            self._handle(event.dest_path)
+
+
 # ── 감시 시작/중지 ─────────────────────────────────────────────────────────────
 def _get_dirs() -> tuple[str, str]:
     """app_settings에서 감시 대상 디렉터리 조회."""
@@ -338,6 +354,28 @@ def _get_setting_value(key: str) -> str:
     with get_apst_conn() as conn:
         row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else ""
+
+
+def _resolve(path: str) -> str:
+    """경로 비교용 정규화(중복 감시 폴더 판별)."""
+    try:
+        return str(Path(path).resolve())
+    except Exception:
+        return path
+
+
+def _cml_watch_dir() -> str:
+    """
+    감시할 CML 폴더를 반환한다.
+    cml_path 설정이 폴더면 그대로, 파일이면 그 상위 폴더를 감시 대상으로 한다.
+    유효한 폴더가 없으면 빈 문자열.
+    """
+    cml_setting = _get_setting_value("cml_path")
+    if not cml_setting:
+        return ""
+    p = Path(cml_setting)
+    d = p if p.is_dir() else p.parent
+    return str(d) if d.is_dir() else ""
 
 
 _scan_running = False
@@ -400,6 +438,14 @@ def start_watching() -> dict:
             watched.append(ddr1_dir)
         elif ddr1_dir:
             errors.append(f"DDR1 디렉터리 없음: {ddr1_dir}")
+
+        # CML 폴더 감시: 늦게 도착한 CML도 상태 재판정(refresh)을 트리거하도록 한다.
+        # cml_path가 파일이면 그 상위 폴더를, 폴더면 그대로 감시한다.
+        # 이미 감시 중인 폴더(APST/DDR1와 동일)면 중복 등록하지 않는다.
+        cml_dir = _cml_watch_dir()
+        if cml_dir and _resolve(cml_dir) not in {_resolve(w) for w in watched}:
+            observer.schedule(_CmlHandler(), cml_dir, recursive=False)
+            watched.append(cml_dir)
 
         if not watched:
             return {
@@ -467,6 +513,9 @@ def get_watcher_status() -> dict:
             watching.append(apst_dir)
         if ddr1_dir and Path(ddr1_dir).is_dir():
             watching.append(ddr1_dir)
+        cml_dir = _cml_watch_dir()
+        if cml_dir and _resolve(cml_dir) not in {_resolve(w) for w in watching}:
+            watching.append(cml_dir)
 
     return {
         "running": running,

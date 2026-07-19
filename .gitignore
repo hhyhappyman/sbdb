@@ -23,14 +23,10 @@ data/
 Thumbs.db
 *.log
 
-# ── 업로드 스크립트 (PAT 토큰 포함 — 절대 업로드 금지) ─
-upload_to_github.sh
-
-# ── FTP/EC2/서버 접속 정보 포함 스크립트 (업로드 제외) ──
-ftp_to_ec2.sh
-ftp_to_ec2_dayinput.sh
-wsl_to_ec2_rsync.sh
-wsl_to_ubuntu_rsync.sh
+# ── 셸 스크립트: install_service.sh 만 업로드, 나머지 전부 제외 ─
+#   (upload/ftp/rsync/setup 등 접속정보·토큰 포함 가능성 → GitHub 제외)
+*.sh
+!install_service.sh
 
 # ── 보안 키 (SSH/EC2 개인키 — 절대 업로드 금지) ────────
 *.pem

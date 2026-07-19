@@ -453,15 +453,21 @@ def get_apst_name_map(dates: set[str]) -> dict:
 
 def get_apst_name_before(clip_id: str, before_date: str) -> dict | None:
     """
-    clip_id를 자동송출(apst.db)에서 날짜 무관하게 조회하되,
-    기준 날짜(before_date) 이전 날짜 중 가장 가까운(최신) 날짜의 소재를 반환한다.
-    (어제 → 그 이전 순서로 찾는 것과 동일한 효과)
+    clip_id를 자동송출(apst.db)에서 날짜 무관하게 조회해 소재명을 보완한다.
+
+    조회 순서 (가장 가까운 날짜 우선):
+      1) 기준 날짜(before_date) 이전 중 가장 가까운(최신) 날짜
+      2) 없으면 기준 날짜 이후 중 가장 가까운(최초) 날짜
+    → 새 소재가 자동편성(APST)에 들어가기 전에 수동(DDR1)으로 먼저 송출되는
+      경우, 소재명이 '미래' APST에만 존재하므로 이후 날짜까지 조회해야 한다.
+      (clip_id↔소재명은 시점과 무관하게 고정이라 이후 날짜 값을 써도 안전하다.)
 
     찾지 못하면 None.
     """
     conn = sqlite3.connect(APST_DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
+        # 1) 이전 날짜 중 최신
         r = conn.execute(
             """SELECT item_name_raw, item_name, content_type_label, duration_sec, broadcast_date
                FROM broadcasts
@@ -469,6 +475,15 @@ def get_apst_name_before(clip_id: str, before_date: str) -> dict | None:
                ORDER BY broadcast_date DESC LIMIT 1""",
             (clip_id, before_date),
         ).fetchone()
+        # 2) 이전이 없으면 이후 날짜 중 최초
+        if not r:
+            r = conn.execute(
+                """SELECT item_name_raw, item_name, content_type_label, duration_sec, broadcast_date
+                   FROM broadcasts
+                   WHERE clip_id = ? AND broadcast_date >= ?
+                   ORDER BY broadcast_date ASC LIMIT 1""",
+                (clip_id, before_date),
+            ).fetchone()
     finally:
         conn.close()
     if not r:
