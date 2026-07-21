@@ -3,6 +3,48 @@ Shared utility functions for all parsers.
 """
 
 import re
+from pathlib import Path
+
+
+# ── APST 파일명 매칭 (대소문자 무시 + 접미사 설정) ─────────────────────────────
+# 파일명 형식: <YYYYMMDD><접미사>.apst  (예: 20260720AAA.apst)
+# 접미사(suffix)는 환경설정값. 대소문자를 구분하지 않으며, 확장자도 .apst/.APST 모두 허용.
+
+def apst_name_matches(filename: str, suffix: str, date_iso: str | None = None) -> bool:
+    """
+    파일명이 '<YYYYMMDD><suffix>.apst' 형태인지 대소문자 무시로 검사한다.
+      - suffix: 환경설정 접미사(예: 'AAA'/'A'/'P'). 앞뒤 공백·대소문자 무시.
+                빈 값이면 '<YYYYMMDD>.apst'(접미사 없음)만 일치.
+      - date_iso: 'YYYY-MM-DD'가 주어지면 그 날짜와도 일치해야 함(없으면 날짜 무관).
+    """
+    name = filename.strip().lower()
+    if not name.endswith(".apst"):
+        return False
+    stem = name[: -len(".apst")]
+    m = re.match(r"^(\d{8})(.*)$", stem)
+    if not m:
+        return False
+    date8, rest = m.group(1), m.group(2)
+    if rest != (suffix or "").strip().lower():
+        return False
+    if date_iso is not None and date8 != date_iso.replace("-", ""):
+        return False
+    return True
+
+
+def find_apst_files(dir_path, suffix: str, date_iso: str | None = None) -> list:
+    """
+    지정 폴더에서 접미사(suffix) 규칙에 맞는 APST 파일(Path)들을 정렬해 반환한다.
+    date_iso가 주어지면 그 날짜 파일만, 없으면 규칙에 맞는 모든 날짜 파일을 반환한다.
+    (대소문자 무시 — .apst/.APST 및 접미사 대소문자 모두 허용)
+    """
+    p = Path(dir_path)
+    if not p.is_dir():
+        return []
+    return sorted(
+        f for f in p.iterdir()
+        if f.is_file() and apst_name_matches(f.name, suffix, date_iso)
+    )
 
 
 # ── 급지(SA/A/B/C) 분류 ──────────────────────────────────────────────────────

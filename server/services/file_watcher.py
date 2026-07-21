@@ -19,6 +19,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileMovedEvent
 
 from database import get_apst_conn, get_ddr1_conn
+from config import APST_SUFFIX_DEFAULT
+from parsers.utils import apst_name_matches, find_apst_files
 from parsers.apst_parser import parse_apst, find_manual_segments
 from parsers.cml_parser import parse_cml, build_clip_rows, resolve_cml_path_for_date
 from parsers.ddr1_parser import parse_ddr1, extract_manual_segment_records
@@ -78,13 +80,12 @@ def _find_manual_windows_for_date(broadcast_date: str) -> list[tuple[str, str]]:
     if not dir_path.exists() or not dir_path.is_dir():
         return []
 
-    for fpath in dir_path.glob("*.apst"):
-        if _date_from_filename(fpath.name) == broadcast_date:
-            try:
-                segments = find_manual_segments(str(fpath))
-            except Exception:
-                continue
-            return [(seg["start_time"], seg["end_time"]) for seg in segments]
+    for fpath in find_apst_files(dir_path, _apst_suffix(), broadcast_date):
+        try:
+            segments = find_manual_segments(str(fpath))
+        except Exception:
+            continue
+        return [(seg["start_time"], seg["end_time"]) for seg in segments]
 
     return []
 
@@ -112,8 +113,12 @@ def _reconcile_date(date: str):
 
 
 def _ingest_apst(file_path: str):
-    """APST 파일 적재. 이미 처리된 파일은 건너뜀."""
+    """APST 파일 적재. 접미사 규칙 불일치·이미 처리된 파일은 건너뜀."""
     fname = Path(file_path).name
+
+    # 환경설정 접미사 규칙에 맞는 APST 파일만 적재 (대소문자 무시)
+    if not apst_name_matches(fname, _apst_suffix()):
+        return
 
     with get_apst_conn() as conn:
         exists = conn.execute(
@@ -356,6 +361,11 @@ def _get_setting_value(key: str) -> str:
     return row["value"] if row else ""
 
 
+def _apst_suffix() -> str:
+    """APST 파일명 접미사 설정값 (미설정 시 기본값)."""
+    return _get_setting_value("apst_suffix") or APST_SUFFIX_DEFAULT
+
+
 def _resolve(path: str) -> str:
     """경로 비교용 정규화(중복 감시 폴더 판별)."""
     try:
@@ -402,7 +412,7 @@ def _initial_scan():
             for f in sorted(Path(cml_dir).glob("*.cml")):
                 _ingest_cml(str(f), reconcile=False)
         if apst_dir and Path(apst_dir).is_dir():
-            for f in sorted(Path(apst_dir).glob("*.apst")):
+            for f in find_apst_files(apst_dir, _apst_suffix()):
                 _ingest_apst(str(f))
         if ddr1_dir and Path(ddr1_dir).is_dir():
             for f in sorted(Path(ddr1_dir).glob("*.[lL][oO][gG]")):

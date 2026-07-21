@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class SettingsUpdate(BaseModel):
     apst_dir:        str | None = None
+    apst_suffix:     str | None = None
     ddr1_dir:        str | None = None
     cml_path:        str | None = None
     logo_path:       str | None = None

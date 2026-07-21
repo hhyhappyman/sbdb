@@ -17,6 +17,7 @@ from config import (
     GONGIK_INCLUDE_KEYWORDS_DEFAULT, JAENAN_INCLUDE_KEYWORDS_DEFAULT,
     GONGIK_JAENAN_EXCLUDE_KEYWORDS_DEFAULT,
     COMPANY_NAME_DEFAULT, COMPANY_SHORT_DEFAULT,
+    APST_SUFFIX_DEFAULT,
 )
 
 
@@ -205,6 +206,33 @@ def _backfill_grade(conn: sqlite3.Connection) -> None:
     conn.executemany("UPDATE broadcasts SET grade = ? WHERE id = ?", updates)
 
 
+def _migrate_apst_dedup(conn: sqlite3.Connection) -> None:
+    """
+    apst.db broadcasts 행 단위 중복 제거 + 재발 방지.
+    파일명이 달라도 같은 (broadcast_date, broadcast_time, clip_id) 행이 중복 적재되던
+    문제를 해결한다. 최초 1회: 기존 중복 삭제(가장 작은 id만 남김) → UNIQUE 인덱스 생성.
+    (인덱스가 이미 있으면 아무 것도 하지 않아 재시작마다 반복되지 않는다.)
+    """
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name='uidx_apst_dtc'"
+    ).fetchone()
+    if exists:
+        return
+    # 기존 중복 제거: 같은 키 중 가장 먼저 적재된 행(id 최소)만 남긴다.
+    conn.execute(
+        """DELETE FROM broadcasts
+           WHERE id NOT IN (
+               SELECT MIN(id) FROM broadcasts
+               GROUP BY broadcast_date, broadcast_time, clip_id
+           )"""
+    )
+    # 재발 방지 UNIQUE 인덱스 (INSERT OR IGNORE와 함께 동작)
+    conn.execute(
+        "CREATE UNIQUE INDEX uidx_apst_dtc "
+        "ON broadcasts(broadcast_date, broadcast_time, clip_id)"
+    )
+
+
 def init_db() -> None:
     """Create directories and initialize both SQLite databases."""
     # Create directories
@@ -218,8 +246,10 @@ def init_db() -> None:
     _ensure_column(conn, "broadcasts", "main_equipment", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_apst_grade ON broadcasts(grade)")
     _backfill_grade(conn)
+    _migrate_apst_dedup(conn)   # 행 단위 중복 제거 + UNIQUE 인덱스(최초 1회)
     # 최초 설치 시에만 채우는 시딩 기본값 (빈 값으로 비워도 복구하지 않음)
     _seed_defaults = {
+        "apst_suffix":                    APST_SUFFIX_DEFAULT,
         "company_name":                   COMPANY_NAME_DEFAULT,
         "company_short":                  COMPANY_SHORT_DEFAULT,
         "gongik_include_keywords":        GONGIK_INCLUDE_KEYWORDS_DEFAULT,

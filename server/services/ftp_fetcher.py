@@ -13,16 +13,17 @@ import threading
 from datetime import datetime, date as date_cls, timedelta
 from pathlib import Path
 
-from database import get_apst_conn
-from config import FTP_SUBDIRS, FTP_PORT_DEFAULT
+from database import get_apst_conn, get_ddr1_conn
+from config import FTP_SUBDIRS, FTP_PORT_DEFAULT, APST_SUFFIX_DEFAULT
 from services.activity_log import log_event
+from parsers.utils import apst_name_matches
 
 
 # ── 설정 조회 ────────────────────────────────────────────────────────────────
 
 _CONF_KEYS = [
     "ftp_host", "ftp_port", "ftp_user", "ftp_password", "ftp_fetch_time",
-    "apst_dir", "ddr1_dir", "cml_path",
+    "apst_dir", "apst_suffix", "ddr1_dir", "cml_path",
 ]
 
 
@@ -169,12 +170,19 @@ def _present_files_for_date(date: str) -> dict:
     """
     conf = _get_conf()
     dnodash = date.replace("-", "")
+    suffix = conf.get("apst_suffix") or APST_SUFFIX_DEFAULT
+    # APST는 접미사 규칙(대소문자 무시)으로, DDR1/CML은 날짜 포함(대소문자 무시)으로 검사
     dirs = {
-        "apst": (conf.get("apst_dir", ""), ".apst"),
         "ddr1": (conf.get("ddr1_dir", ""), ".log"),
         "cml":  (conf.get("cml_path", ""), ".cml"),
     }
     present = {}
+    apst_dir = conf.get("apst_dir", "")
+    present["apst"] = bool(
+        apst_dir and Path(apst_dir).is_dir()
+        and any(f.is_file() and apst_name_matches(f.name, suffix, date)
+                for f in Path(apst_dir).iterdir())
+    )
     for kind, (d, ext) in dirs.items():
         found = False
         if d and Path(d).is_dir():
@@ -186,19 +194,46 @@ def _present_files_for_date(date: str) -> dict:
     return present
 
 
+def _unresolved_manual_clips(date: str) -> list[str]:
+    """
+    해당 날짜의 수동송출(ddr1.db) 중 소재명을 못 찾아 clip_id(N######)가 그대로
+    소재명으로 남은 항목들의 clip_id 목록을 반환한다. (CML·APST 어디서도 못 찾은 경우)
+    """
+    with get_ddr1_conn() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT clip_id FROM broadcasts
+               WHERE broadcast_date = ? AND item_name = clip_id""",
+            (date,),
+        ).fetchall()
+    return [r["clip_id"] for r in rows]
+
+
 def refresh_fetch_status(date: str) -> dict:
     """
-    해당 날짜의 APST/DDR1/CML 세 파일이 모두 있으면 daily_fetch='ok',
-    하나라도 없으면 'missing'(어떤 파일이 없는지 메시지에 표시)으로 기록한다.
-    (미완이면 달력에 붉은색으로 표시됨) — FTP·폴더감시 공용.
+    해당 날짜의 상태(daily_fetch)를 갱신한다. 아래 중 하나라도 해당하면 'missing'
+    (달력에 붉은색), 아니면 'ok'(파란색)로 기록한다. — FTP·폴더감시·전체스캔 공용.
+      1) 필수 파일(APST·DDR1 로그)이 없음
+      2) 수동송출 소재 중 소재명을 끝내 못 찾은 항목(N-코드)이 남아 있음
+         (CML이 없어 APST로 확인했으나 거기에도 없는 경우 등)
+
+    CML 파일 자체의 부재는 붉은색 사유가 아니다(소재명은 APST로 폴백되므로).
     """
     present = _present_files_for_date(date)
-    missing = [k.upper() for k in ("apst", "ddr1", "cml") if not present[k]]
-    if not missing:
-        _set_status(date, "ok", "APST·DDR1·CML 파일 모두 존재")
-        return {"date": date, "ok": True}
-    _set_status(date, "missing", f"없는 파일: {', '.join(missing)}")
-    return {"date": date, "ok": False, "missing": True, "missing_kinds": missing}
+    missing = [k.upper() for k in ("apst", "ddr1") if not present[k]]
+    if missing:
+        _set_status(date, "missing", f"없는 파일: {', '.join(missing)}")
+        return {"date": date, "ok": False, "missing": True, "missing_kinds": missing}
+
+    # 파일은 있으나 소재명을 못 찾은 수동송출이 있으면 붉은색으로 표시
+    unresolved = _unresolved_manual_clips(date)
+    if unresolved:
+        shown = ", ".join(unresolved[:5]) + ("..." if len(unresolved) > 5 else "")
+        _set_status(date, "missing", f"소재명 미확인 수동송출 {len(unresolved)}건: {shown}")
+        return {"date": date, "ok": False, "missing": True, "unresolved": unresolved}
+
+    note = "APST·DDR1 파일 존재" + ("" if present["cml"] else " (CML 없음 — 소재명은 APST로 보완)")
+    _set_status(date, "ok", note)
+    return {"date": date, "ok": True}
 
 
 # ── 스케줄러 (매일 지정 시각에 전날 파일 자동 가져오기) ────────────────────────

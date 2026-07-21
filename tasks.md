@@ -356,6 +356,16 @@
 - [x] `wsl_to_ubuntu_rsync.sh` — db/data를 비밀번호 SSH(ControlMaster로 1회 입력)로 우분투 서버에 전송(접속정보 포함 → .gitignore)
 - [x] 우분투 설치→sbdb 서버 구성 가이드 문서(6~9번 sbdb용으로 재작성)
 
+### 7-13. 월 리포트 문서 레이아웃·소재명 보완·파일 매칭·달력 판정 개선
+- [x] **월 리포트 PDF 1페이지 여백 균형** — 상·하 여백 12mm 동일 + 표 행 패딩을 자동 계산(측정 전용 복제표로 넘침 없는 최대 패딩 채택)해 한 페이지를 균형 있게 채움
+- [x] **월 리포트 Word 동일 적용** — 여백 12mm + 글자 수 기반 줄바꿈 추정으로 행 높이 자동, 세 표 가운데 정렬(좌우 여백 동일), 푸터(확인문구+회사명) 한 줄 2칸 표로 통합
+- [x] **월 리포트 시간 표기 통일** — 새벽 0~4시 `24:xx`(+24) → 실제 시각 `00:xx`로, 화면·PDF·Word 일치(`_to_broadcast_hhmm`/`_hhmm`에서 +24 제거)
+- [x] **수동송출 소재명 양방향 폴백** — `get_apst_name_before`가 이전 날짜 없으면 이후 날짜 APST까지 조회(신소재 수동 선행 대응). `backfill_manual_names.py`로 기존 N-코드 행 일괄 보완(로컬 59/70 해결)
+- [x] **APST 파일명 접미사 설정(`apst_suffix`)** — 기본 `AAA`, 대소문자 무시 매칭(`parsers/utils.apst_name_matches`/`find_apst_files`). APST를 날짜로 찾는 모든 지점(ftp_fetcher·file_watcher·ingest·report) 교체 + 환경설정 UI 항목
+- [x] **달력 붉은색 판정 개선** — CML 부재는 붉은색 제외(APST/DDR1만), 소재명 미확인 수동송출(N-코드) 남으면 붉은색, 전체 스캔도 `refresh_fetch_status`로 상태 갱신
+- [x] **CML 폴더 감시 추가** — `start_watching`이 CML 폴더도 감시(`_CmlHandler`) → 늦게 온 CML도 상태 재판정 트리거(미감시 폴더라 붉은색이 안 풀리던 문제 해결)
+- [x] **.gitignore 정리** — 모든 `*.sh` 제외하되 `install_service.sh`만 업로드(`!install_service.sh`)
+
 ---
 
 ## 현재 상태

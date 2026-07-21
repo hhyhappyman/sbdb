@@ -104,6 +104,8 @@ const FIELDS = [
     section: '데이터 파일 경로',
     items: [
       { name: 'apst_dir',  label: 'APST 파일 디렉터리', placeholder: '/data/apst/' },
+      { name: 'apst_suffix', label: 'APST 파일명 접미사',
+        placeholder: '예: AAA  (20260720AAA.apst → AAA / 대소문자 무시 / 없으면 비움)', plain: true },
       { name: 'ddr1_dir',  label: 'DDR1 로그 디렉터리',  placeholder: '/data/ddr1/' },
       { name: 'cml_path',  label: 'CML 파일 디렉터리',
         placeholder: '/data/cml/  (날짜별 imc<YYYYMMDD>.cml 파일을 자동으로 찾습니다)' },

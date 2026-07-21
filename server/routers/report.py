@@ -43,9 +43,12 @@ from services.activity_log import log_event
 from parsers.apst_parser import parse_apst_all, find_manual_segments
 from parsers.ddr1_parser import extract_manual_clips, classify_ddr1_clip, _guess_label_by_clip
 from parsers.cml_parser import parse_cml, resolve_cml_path_for_date
-from parsers.utils import classify_grade, clean_prm_campaign_name, extract_item_name
+from parsers.utils import (
+    classify_grade, clean_prm_campaign_name, extract_item_name,
+    find_apst_files,
+)
 from database import get_apst_conn, get_ddr1_conn
-from config import APST_DB_PATH
+from config import APST_DB_PATH, APST_SUFFIX_DEFAULT
 
 router = APIRouter(prefix="/api/report", tags=["report"])
 
@@ -200,9 +203,8 @@ def _find_apst_files_for_date(date: str) -> list[str]:
     if not dir_path.exists():
         raise HTTPException(status_code=400, detail=f"디렉터리를 찾을 수 없습니다: {apst_dir}")
 
-    date_nodash = date.replace("-", "")
-    matched = [str(f) for f in dir_path.glob("*.apst") if date_nodash in f.name]
-    return sorted(matched)
+    suffix = settings.get("apst_suffix") or APST_SUFFIX_DEFAULT
+    return [str(f) for f in find_apst_files(dir_path, suffix, date)]
 
 
 def _find_ddr1_log_for_date(date: str) -> str | None:

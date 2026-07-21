@@ -11,6 +11,7 @@ GET  /api/ingest/status          → 현재 DB 적재 현황 (날짜 범위, 건
 import tempfile
 import os
 import re
+import json
 from datetime import date as _date, timedelta
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
@@ -19,9 +20,13 @@ from database import get_apst_conn, get_ddr1_conn
 from parsers.cml_parser import parse_cml, build_clip_rows, resolve_cml_path_for_date
 from parsers.apst_parser import parse_apst, parse_apst_all, find_manual_segments
 from parsers.ddr1_parser import parse_ddr1, extract_manual_segment_records
-from parsers.utils import extract_item_name, classify_grade, clean_prm_campaign_name
+from parsers.utils import (
+    extract_item_name, classify_grade, clean_prm_campaign_name,
+    apst_name_matches, find_apst_files,
+)
 from services.aggregator import get_campaign_names, get_apst_name_map, get_apst_name_before
 from services.activity_log import log_event
+from config import APST_SUFFIX_DEFAULT
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
@@ -35,12 +40,22 @@ def _get_setting(key: str) -> str:
     return row["value"] if row else ""
 
 
+def _apst_suffix() -> str:
+    """APST 파일명 접미사 설정값 (미설정 시 기본값)."""
+    return _get_setting("apst_suffix") or APST_SUFFIX_DEFAULT
+
+
 def _insert_apst_records(records: list[dict], conn) -> int:
-    """apst.db에 레코드 삽입. 중복 source_file 행은 건너뜀."""
+    """
+    apst.db에 레코드 삽입. 실제로 삽입된 건수를 반환한다.
+    `INSERT OR IGNORE` + UNIQUE(broadcast_date, broadcast_time, clip_id) 인덱스로,
+    파일명이 달라도 같은 (날짜·시간·clip_id) 행은 자동으로 건너뛴다(중복 방지).
+    """
     if not records:
         return 0
+    before = conn.total_changes
     conn.executemany(
-        """INSERT INTO broadcasts
+        """INSERT OR IGNORE INTO broadcasts
            (broadcast_date, broadcast_time, broadcast_hour,
             clip_id, item_name_raw, item_name, duration_sec,
             program_block, content_type, content_type_label, grade,
@@ -52,7 +67,7 @@ def _insert_apst_records(records: list[dict], conn) -> int:
             :main_equipment, :internal_id, :source_file)""",
         records,
     )
-    return len(records)
+    return conn.total_changes - before
 
 
 def _load_cml_map_by_date(dates: set[str], warn: bool = True) -> dict[str, dict]:
@@ -208,9 +223,7 @@ def ingest_date(date: str) -> dict:
     # ── APST + 수동 송출 ──
     apst_dir = _get_setting("apst_dir")
     if apst_dir and Path(apst_dir).exists():
-        for fpath in sorted(Path(apst_dir).glob("*.apst")):
-            if _date_from_filename(fpath.name) != date:
-                continue
+        for fpath in find_apst_files(apst_dir, _apst_suffix(), date):
             fname = fpath.name
             result["apst_files"].append(fname)
             try:
@@ -246,13 +259,12 @@ def _find_manual_windows_for_date(broadcast_date: str) -> list[tuple[str, str]]:
     if not dir_path.exists() or not dir_path.is_dir():
         return []
 
-    for fpath in dir_path.glob("*.apst"):
-        if _date_from_filename(fpath.name) == broadcast_date:
-            try:
-                segments = find_manual_segments(str(fpath))
-            except Exception:
-                continue
-            return [(seg["start_time"], seg["end_time"]) for seg in segments]
+    for fpath in find_apst_files(dir_path, _apst_suffix(), broadcast_date):
+        try:
+            segments = find_manual_segments(str(fpath))
+        except Exception:
+            continue
+        return [(seg["start_time"], seg["end_time"]) for seg in segments]
 
     return []
 
@@ -389,22 +401,35 @@ async def ingest_apst(file: UploadFile = File(...)) -> dict:
         tmp_path = tmp.name
 
     try:
-        records = parse_apst(tmp_path, source_file=source_file)
-        segments = find_manual_segments(tmp_path)
+        try:
+            records = parse_apst(tmp_path, source_file=source_file)
+            segments = find_manual_segments(tmp_path)
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"APST 파일이 올바른 JSON 형식이 아닙니다(파일 손상/병합 오류 가능): {e}",
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"APST 파일 처리 오류: {e}")
     finally:
         os.unlink(tmp_path)
 
+    inserted = 0
     if records:
         with get_apst_conn() as conn:
-            _insert_apst_records(records, conn)
-        log_event("info", "db_insert", f"APST 적재: {source_file} ({len(records)}건)")
+            inserted = _insert_apst_records(records, conn)
+        log_event(
+            "info", "db_insert",
+            f"APST 적재: {source_file} (신규 {inserted}건 / 중복 {len(records) - inserted}건 건너뜀)",
+        )
 
     manual_inserted = _insert_manual_segments(segments)
 
     return {
         "message": "APST 파일이 처리되었습니다." if records else "저장할 캠페인·ID 소재가 없습니다.",
         "filename": source_file,
-        "inserted": len(records),
+        "inserted": inserted,
+        "skipped": len(records) - inserted,
         "manual_inserted": manual_inserted,
     }
 
@@ -527,7 +552,7 @@ def migrate_prm_to_campaign() -> dict:
     if not dir_path.exists() or not dir_path.is_dir():
         raise HTTPException(status_code=400, detail=f"디렉터리를 찾을 수 없습니다: {apst_dir}")
 
-    apst_files = sorted(dir_path.glob("*.apst"))
+    apst_files = find_apst_files(dir_path, _apst_suffix())
     if not apst_files:
         raise HTTPException(status_code=404, detail=f"폴더에 .apst 파일이 없습니다: {apst_dir}")
 
@@ -681,16 +706,20 @@ def scan_apst_dir() -> dict:
             for r in conn.execute("SELECT DISTINCT source_file FROM broadcasts").fetchall()
         }
 
-    apst_files = sorted(dir_path.glob("*.apst"))
+    apst_files = find_apst_files(dir_path, _apst_suffix())
     if not apst_files:
         raise HTTPException(status_code=404, detail=f"폴더에 .apst 파일이 없습니다: {apst_dir}")
 
     results = []
     total_inserted = 0
     total_manual_inserted = 0
+    scanned_dates: set[str] = set()
 
     for fpath in apst_files:
         fname = fpath.name
+        d = _date_from_filename(fname)
+        if d:
+            scanned_dates.add(d)
         if fname in done:
             results.append({"file": fname, "status": "skipped", "inserted": 0})
             continue
@@ -710,6 +739,15 @@ def scan_apst_dir() -> dict:
             })
         except Exception as e:
             results.append({"file": fname, "status": "error", "message": str(e)})
+
+    # 스캔한 날짜들의 달력 상태(붉은/파랑) 갱신
+    # (파일 누락 + 소재명 미확인 수동송출 여부를 반영)
+    from services.ftp_fetcher import refresh_fetch_status
+    for d in scanned_dates:
+        try:
+            refresh_fetch_status(d)
+        except Exception:
+            pass
 
     if total_inserted or total_manual_inserted:
         log_event(
@@ -872,7 +910,7 @@ def resync_manual_segments() -> dict:
 
     # 2. DDR1 로그가 있는 날짜의 APST 파일 전부 수집 (날짜별 다중 파일 허용)
     apst_files_by_date: dict[str, list[str]] = {}
-    for fpath in apst_path.glob("*.apst"):
+    for fpath in find_apst_files(apst_path, _apst_suffix()):
         d = _date_from_filename(fpath.name)
         if d in ddr1_dates:
             apst_files_by_date.setdefault(d, []).append(str(fpath))
