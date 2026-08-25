@@ -365,6 +365,7 @@
 - [x] **달력 붉은색 판정 개선** — CML 부재는 붉은색 제외(APST/DDR1만), 소재명 미확인 수동송출(N-코드) 남으면 붉은색, 전체 스캔도 `refresh_fetch_status`로 상태 갱신
 - [x] **CML 폴더 감시 추가** — `start_watching`이 CML 폴더도 감시(`_CmlHandler`) → 늦게 온 CML도 상태 재판정 트리거(미감시 폴더라 붉은색이 안 풀리던 문제 해결)
 - [x] **파일 적재 행 단위 중복 방지** — `_insert_apst_records`를 `INSERT OR IGNORE`로, `UNIQUE(broadcast_date, broadcast_time, clip_id)` 인덱스 추가(`_migrate_apst_dedup`: 기존 중복 정리 + 인덱스, init_db 최초 1회). 파일명이 달라도 같은 행은 건너뛰고 나머지만 적재. 업로드 파싱 오류는 400+사유 메시지로 표시(응답에 신규/중복 건수)
+- [x] **급지 주중/주말 기준 분리** — `classify_grade(time_str, broadcast_date)`에 주말(토·일) 기준 추가(`_GRADE_RANGES_WEEKEND`), 달력 요일로 판정. 전 호출부에 broadcast_date 전달. 기존 DB는 `recompute_grades.py`로 일괄 재계산(로컬 20,961행 갱신, 멱등)
 - [x] **.gitignore 정리** — 모든 `*.sh` 제외하되 `install_service.sh`만 업로드(`!install_service.sh`)
 
 ---

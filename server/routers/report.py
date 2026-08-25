@@ -712,7 +712,7 @@ def _gather_subtitle_campaign(date: str) -> dict:
             "time": r["broadcast_time"],
             "program": _campaign_display_name(raw or name),
             "duration": r["duration_sec"] or _parse_duration_from_name(raw),
-            "grade": r["grade"] or classify_grade(r["broadcast_time"]) or "",
+            "grade": r["grade"] or classify_grade(r["broadcast_time"], date) or "",
         }
         if r["_gj_kind"] == "재난":
             disaster.append(entry)
@@ -872,7 +872,7 @@ def _gather_gongik_jaenan_monthly(year: int, month: int) -> dict:
             "time": bt,
             "name": _campaign_display_name(raw or name),
             "duration": dur,
-            "grade": r["grade"] or classify_grade(bt) or "",
+            "grade": r["grade"] or classify_grade(bt, bd) or "",
             "weighted": weighted,
             "weighted_value": round(dur * 1.5, 1) if weighted else dur,
             "unweighted_value": dur,

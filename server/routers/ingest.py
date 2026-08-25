@@ -583,7 +583,7 @@ def migrate_prm_to_campaign() -> dict:
                 "program_block":      item.get("program_block", ""),
                 "content_type":       "PRM",
                 "content_type_label": "공익재난",
-                "grade":              classify_grade(btime),
+                "grade":              classify_grade(btime, item["broadcast_date"]),
                 "main_equipment":     item.get("main_equipment", ""),
                 "internal_id":        None,
                 "source_file":        fpath.name,

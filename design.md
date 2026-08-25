@@ -695,5 +695,11 @@ con == K                         → 공익/재난 이름 + '방송 종료 안�
 ### 파일 적재 행 단위 중복 방지 (UNIQUE 인덱스 + INSERT OR IGNORE)
 - `_insert_apst_records`(ingest.py): `INSERT` → **`INSERT OR IGNORE`**, 반환값은 `conn.total_changes` 차이로 **실제 삽입 건수**. → 파일명이 달라도 같은 (broadcast_date, broadcast_time, clip_id) 행은 자동 스킵.
 - `database._migrate_apst_dedup`: 최초 1회 **기존 중복 제거**(같은 키 중 `MIN(id)`만 남기고 삭제) 후 **`UNIQUE INDEX uidx_apst_dtc (broadcast_date, broadcast_time, clip_id)`** 생성. `init_db`의 apst.db 초기화에서 호출(인덱스 있으면 건너뜀 → 재시작마다 반복 안 함).
+
+### 급지(SA/A/B/C) 주중/주말 요일별 분류
+- `parsers/utils.py`: `_GRADE_RANGES_WEEKDAY`(주중, 기존) + `_GRADE_RANGES_WEEKEND`(주말, 신규). `classify_grade(time_str, broadcast_date=None)`가 `_is_weekend(broadcast_date)`(토=5·일=6)로 기준을 선택. 요일 판정은 **broadcast_date 달력 날짜 기준**(방송일 경계 이동 없음).
+- 시간 구간은 분 단위 `[start, end)`. 주말 A는 `23:30~24:00`과 `00:00~00:30`(=24:00~24:30 wrap)을 포함해 24시간 완전 분류.
+- 호출부 전부에 `broadcast_date` 전달: `apst_parser`·`ddr1_parser`(seg date)·`ingest`(공익재난)·`report`(표시 폴백 2곳)·`manual`(수동입력)·`database._backfill_grade`(SELECT에 broadcast_date 추가).
+- 기존 데이터 갱신: `recompute_grades.py` — apst.db(broadcasts, manual_entries)·ddr1.db(broadcasts)의 grade를 요일 기준으로 재계산(`--apply`, 멱등). 주말 행만 변경(주중 규칙 불변).
 - 업로드 엔드포인트(`POST /api/ingest/apst`): `parse_apst`/`find_manual_segments`를 try/except로 감싸 **`json.JSONDecodeError` 등은 400 + 사유 메시지**로 반환(기존엔 500 "처리 실패"만 표시). 응답에 `inserted`(신규)·`skipped`(중복) 건수 포함.
 - 같은 **파일명**(source_file) 재업로드는 여전히 409로 차단(행 단위 방지와 별개).

@@ -339,7 +339,7 @@ def extract_manual_segment_records(
                 "item_name_raw":      raw_name,
                 "item_name":          clean_name,
                 "content_type_label": label,
-                "grade":              classify_grade(time_str),
+                "grade":              classify_grade(time_str, seg["broadcast_date"]),
                 "duration_sec":       duration_sec,
                 "source_file":        source_file,
             })

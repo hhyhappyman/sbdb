@@ -198,11 +198,11 @@ def _backfill_grade(conn: sqlite3.Connection) -> None:
     from parsers.utils import classify_grade
 
     rows = conn.execute(
-        "SELECT id, broadcast_time FROM broadcasts WHERE grade IS NULL"
+        "SELECT id, broadcast_time, broadcast_date FROM broadcasts WHERE grade IS NULL"
     ).fetchall()
     if not rows:
         return
-    updates = [(classify_grade(r[1]), r[0]) for r in rows]
+    updates = [(classify_grade(r[1], r[2]), r[0]) for r in rows]
     conn.executemany("UPDATE broadcasts SET grade = ? WHERE id = ?", updates)
 
 

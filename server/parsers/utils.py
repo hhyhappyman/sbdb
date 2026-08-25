@@ -50,17 +50,49 @@ def find_apst_files(dir_path, suffix: str, date_iso: str | None = None) -> list:
 # ── 급지(SA/A/B/C) 분류 ──────────────────────────────────────────────────────
 # 시작시간은 그 시간 이상부터 포함, 끝 시간은 그 시간 미만까지 포함 ([start, end))
 # 분 단위(0~1439)로 비교. 모든 24시간이 SA/A/B/C 중 하나로 분류됨(미분류 없음).
-_GRADE_RANGES: list[tuple[str, list[tuple[int, int]]]] = [
+# 요일(broadcast_date의 요일)에 따라 주중(월~금)/주말(토·일) 기준을 다르게 적용한다.
+
+# 주중(월~금) 기준
+_GRADE_RANGES_WEEKDAY: list[tuple[str, list[tuple[int, int]]]] = [
     ("SA", [(19 * 60 + 30, 23 * 60 + 30)]),
     ("A",  [(8 * 60 + 30, 9 * 60 + 30), (19 * 60, 19 * 60 + 30), (23 * 60 + 30, 24 * 60)]),
     ("B",  [(7 * 60, 8 * 60 + 30), (9 * 60 + 30, 12 * 60), (18 * 60, 19 * 60), (0, 60)]),
     ("C",  [(60, 7 * 60), (12 * 60, 18 * 60)]),
 ]
 
+# 주말(토·일) 기준
+#   SA : 18:00~23:30
+#   A  : 08:00~12:30, 17:00~18:00, 23:30~24:30(=다음날 00:30) → 00:00~00:30 포함
+#   B  : 12:30~17:00
+#   C  : 00:30~08:00
+_GRADE_RANGES_WEEKEND: list[tuple[str, list[tuple[int, int]]]] = [
+    ("SA", [(18 * 60, 23 * 60 + 30)]),
+    ("A",  [(8 * 60, 12 * 60 + 30), (17 * 60, 18 * 60), (23 * 60 + 30, 24 * 60), (0, 30)]),
+    ("B",  [(12 * 60 + 30, 17 * 60)]),
+    ("C",  [(30, 8 * 60)]),
+]
 
-def classify_grade(time_str: str) -> str | None:
+# 하위 호환용 별칭(옛 이름). 새 코드는 주중/주말 상수를 직접 쓴다.
+_GRADE_RANGES = _GRADE_RANGES_WEEKDAY
+
+
+def _is_weekend(broadcast_date: str | None) -> bool:
+    """'YYYY-MM-DD'의 요일이 토(5)·일(6)이면 True. 파싱 불가/None이면 False(주중 취급)."""
+    if not broadcast_date:
+        return False
+    try:
+        from datetime import date as _date
+        y, mo, d = (int(x) for x in broadcast_date.split("-"))
+        return _date(y, mo, d).weekday() >= 5
+    except (ValueError, TypeError):
+        return False
+
+
+def classify_grade(time_str: str, broadcast_date: str | None = None) -> str | None:
     """
-    'HH:MM:SS' 또는 'HH:MM' 형식의 송출 시간을 SA/A/B/C 등급으로 분류.
+    송출 시간을 SA/A/B/C 등급으로 분류.
+      - time_str: 'HH:MM:SS' 또는 'HH:MM'
+      - broadcast_date: 'YYYY-MM-DD' (요일 판정용). 토·일이면 주말 기준, 그 외/None이면 주중 기준.
     """
     try:
         parts = time_str.split(":")
@@ -69,8 +101,9 @@ def classify_grade(time_str: str) -> str | None:
         return None
 
     total = h * 60 + m
-    for label, ranges in _GRADE_RANGES:
-        for start, end in ranges:
+    ranges = _GRADE_RANGES_WEEKEND if _is_weekend(broadcast_date) else _GRADE_RANGES_WEEKDAY
+    for label, rs in ranges:
+        for start, end in rs:
             if start <= total < end:
                 return label
     return None

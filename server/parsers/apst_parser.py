@@ -191,7 +191,7 @@ def parse_apst(file_path: str, source_file: str | None = None) -> list[dict]:
                 "program_block":      program_block,
                 "content_type":       con,
                 "content_type_label": store_type,
-                "grade":              classify_grade(time_str),
+                "grade":              classify_grade(time_str, broadcast_date),
                 "main_equipment":     item.get("MM", ""),
                 "internal_id":        item.get("ID"),
                 "source_file":        source_file,

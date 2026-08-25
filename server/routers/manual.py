@@ -84,7 +84,7 @@ def create_entry(body: ManualEntry, request: Request) -> dict:
                VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (body.broadcast_date, body.content_type, time_str, hour,
              body.program_name or "", body.item_title or "",
-             classify_grade(time_str), body.worker_name or "", ip, now),
+             classify_grade(time_str, body.broadcast_date), body.worker_name or "", ip, now),
         )
         entry_id = cur.lastrowid
 
