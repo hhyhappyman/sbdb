@@ -3,6 +3,7 @@ MS Word(.docx) generator — 송출내역 출력 메뉴의 각 보고서를 Word
 PDF(pdf_generator.py)와 동일한 데이터를 사용해 표 중심으로 생성한다.
 """
 
+import os
 import calendar
 from datetime import datetime, date as date_type
 
@@ -23,15 +24,18 @@ _DAY_OF_WEEK_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
 
-def _new_doc() -> Document:
-    """한글 폰트가 적용된 새 문서."""
+def _new_doc(body_font: str | None = None) -> Document:
+    """한글 폰트가 적용된 새 문서. body_font 지정 시 본문 기본 폰트로 사용."""
+    ko = body_font or _KO_FONT
     doc = Document()
     style = doc.styles["Normal"]
-    style.font.name = _KO_FONT
+    style.font.name = ko
     style.font.size = Pt(10)
     rpr = style.element.get_or_add_rPr()
     rfonts = rpr.get_or_add_rFonts()
-    rfonts.set(qn("w:eastAsia"), _KO_FONT)
+    rfonts.set(qn("w:eastAsia"), ko)
+    rfonts.set(qn("w:ascii"), ko)
+    rfonts.set(qn("w:hAnsi"), ko)
     # Word 기본 스타일의 문단 간격/줄간격(보통 8pt·1.08배)을 0으로 낮춘다.
     # 그대로 두면 표의 행(문단)마다 여분 간격이 누적되어, PDF에서는 한 페이지에
     # 들어가는 표(월 31행 등)가 Word에서는 여러 페이지로 넘어간다.
@@ -42,19 +46,27 @@ def _new_doc() -> Document:
     return doc
 
 
-def _title(doc: Document, text: str, size: int = 16):
+def _apply_run_font(run, font_name: str):
+    """run에 지정 폰트를 라틴/한글(eastAsia) 모두 적용."""
+    run.font.name = font_name
+    rf = run._element.rPr.rFonts
+    rf.set(qn("w:eastAsia"), font_name)
+    rf.set(qn("w:ascii"), font_name)
+    rf.set(qn("w:hAnsi"), font_name)
+
+
+def _title(doc: Document, text: str, size: int = 16, font: str | None = None):
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(6)
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run(text)
     run.bold = True
     run.font.size = Pt(size)
-    run.font.name = _KO_FONT
-    run._element.rPr.rFonts.set(qn("w:eastAsia"), _KO_FONT)
+    _apply_run_font(run, font or _KO_FONT)
     return p
 
 
-def _set_cell(cell, text, bold=False, align="center", size=9):
+def _set_cell(cell, text, bold=False, align="center", size=9, font=None):
     p = cell.paragraphs[0]
     # 셀에 남아있는 run 제거 후 새로 작성 (앞쪽 빈 run 방지)
     for _r in list(p.runs):
@@ -65,8 +77,7 @@ def _set_cell(cell, text, bold=False, align="center", size=9):
         "right":  WD_ALIGN_PARAGRAPH.RIGHT,
     }.get(align, WD_ALIGN_PARAGRAPH.CENTER)
     run = p.add_run("" if text is None else str(text))
-    run.font.name = _KO_FONT
-    run._element.rPr.rFonts.set(qn("w:eastAsia"), _KO_FONT)
+    _apply_run_font(run, font or _KO_FONT)
     run.font.size = Pt(size)
     if bold:
         run.bold = True
@@ -148,13 +159,119 @@ def _thick_top_border(row, size: int = 18, color: str = "3A3A3A"):
     _thick_border(row, "top", size, color)
 
 
-def _grid_table(doc: Document, headers: list[str]):
+def _row_side_border(row, side: str, val: str = "single", size: int = 6, color: str = "000000"):
+    """행의 지정 변에 테두리(스타일 지정). val: single/dotted/dashed 등."""
+    for cell in row.cells:
+        tcPr = cell._tc.get_or_add_tcPr()
+        borders = tcPr.find(qn("w:tcBorders"))
+        if borders is None:
+            borders = OxmlElement("w:tcBorders")
+            tcPr.append(borders)
+        old = borders.find(qn(f"w:{side}"))
+        if old is not None:
+            borders.remove(old)
+        el = OxmlElement(f"w:{side}")
+        el.set(qn("w:val"), val)
+        el.set(qn("w:sz"), str(size))
+        el.set(qn("w:space"), "0")
+        el.set(qn("w:color"), color)
+        borders.append(el)
+
+
+def _remove_table_borders(table):
+    """표 전체 테두리 제거(격자 없음)."""
+    tblPr = table._tbl.tblPr
+    old = tblPr.find(qn("w:tblBorders"))
+    if old is not None:
+        tblPr.remove(old)
+    borders = OxmlElement("w:tblBorders")
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        el = OxmlElement(f"w:{side}")
+        el.set(qn("w:val"), "none")
+        el.set(qn("w:sz"), "0")
+        borders.append(el)
+    tblPr.append(borders)
+
+
+def _hrule(doc: Document, size: int = 16, color: str = "000000",
+           space_before: float = 0, space_after: float = 2, side: str = "bottom"):
+    """가로 구분선(문단 테두리). side=bottom/top. 얇게 표시."""
+    p = doc.add_paragraph()
+    pf = p.paragraph_format
+    pf.space_before = Pt(space_before)
+    pf.space_after = Pt(space_after)
+    pf.line_spacing = 1.0
+    pPr = p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    el = OxmlElement(f"w:{side}")
+    el.set(qn("w:val"), "single")
+    el.set(qn("w:sz"), str(size))
+    el.set(qn("w:space"), "1")
+    el.set(qn("w:color"), color)
+    pBdr.append(el)
+    pPr.append(pBdr)
+    p.add_run("").font.size = Pt(1)   # 높이 최소화
+    return p
+
+
+def _white_header(row, bg_hex: str = "3A3A3A"):
+    """헤더 행: 진한 배경 + 흰 글자."""
+    _shade_row(row, bg_hex)
+    for cell in row.cells:
+        for p in cell.paragraphs:
+            for r in p.runs:
+                r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+
+def _add_floating_seal(paragraph, img_path, w_mm: float, h_mm: float,
+                       x_mm: float, y_mm: float):
+    """
+    직인 이미지를 '떠있는(앞에 표시)' 이미지로 넣어 글자와 겹치게 한다.
+    x_mm: 페이지 왼쪽 기준 가로 절대위치(결정적), y_mm: 문단 기준 세로 오프셋(음수=위로).
+    """
+    EMU = 36000  # 1mm
+    run = paragraph.add_run()
+    run.add_picture(img_path, width=Mm(w_mm), height=Mm(h_mm))
+    drawing = run._r.find(qn("w:drawing"))
+    inline = drawing.find(qn("wp:inline"))
+    extent = inline.find(qn("wp:extent"))
+    docPr = inline.find(qn("wp:docPr"))
+    graphic = inline.find(qn("a:graphic"))
+
+    anchor = OxmlElement("wp:anchor")
+    for k, v in (("distT", "0"), ("distB", "0"), ("distL", "0"), ("distR", "0"),
+                 ("simplePos", "0"), ("relativeHeight", "251658240"),
+                 ("behindDoc", "0"), ("locked", "0"), ("layoutInCell", "0"),
+                 ("allowOverlap", "1")):
+        anchor.set(k, v)
+    sp = OxmlElement("wp:simplePos"); sp.set("x", "0"); sp.set("y", "0")
+    anchor.append(sp)
+    # 가로: 페이지 기준 절대위치(셀/열 기준은 Word가 무시하는 경우가 있어 page로 고정)
+    posH = OxmlElement("wp:positionH"); posH.set("relativeFrom", "page")
+    oh = OxmlElement("wp:posOffset"); oh.text = str(int(x_mm * EMU)); posH.append(oh)
+    anchor.append(posH)
+    posV = OxmlElement("wp:positionV"); posV.set("relativeFrom", "paragraph")
+    ov = OxmlElement("wp:posOffset"); ov.text = str(int(y_mm * EMU)); posV.append(ov)
+    anchor.append(posV)
+    anchor.append(extent)
+    ee = OxmlElement("wp:effectExtent")
+    for a in ("l", "t", "r", "b"):
+        ee.set(a, "0")
+    anchor.append(ee)
+    anchor.append(OxmlElement("wp:wrapNone"))
+    anchor.append(docPr)
+    anchor.append(graphic)
+    drawing.remove(inline)
+    drawing.append(anchor)
+
+
+def _grid_table(doc: Document, headers: list[str], font: str | None = None):
     """머리글 행이 있는 격자 표 생성 (좌측 정렬 — 여러 표의 좌측 여백을 일치시킴)."""
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
     for i, h in enumerate(headers):
-        _set_cell(table.rows[0].cells[i], h, bold=True)
+        _set_cell(table.rows[0].cells[i], h, bold=True, font=font)
     return table
 
 
@@ -182,19 +299,36 @@ def _compact_table(table, row_h_mm: float = 5.0, exact: bool = True):
         row.height_rule = rule
 
 
-def _estimate_wrap_lines(text: str, col_mm: float = 76.0,
-                         font_pt: float = 8.0, cell_pad_mm: float = 1.4) -> int:
+def _estimate_wrap_lines(text: str, col_mm: float = 68.0,
+                         font_pt: float = 9.0, cell_pad_mm: float = 2.0) -> int:
     """
     Word는 렌더링 높이를 직접 잴 수 없어, 셀 폭과 글자 수로 줄바꿈 줄 수를 추정한다.
-    (숫자·공백 위주 문자열 기준: 한 글자 폭 ≈ 0.5em)
+    실측(TV칸 68mm, 9pt에서 7회 이상이면 2줄)에 맞춰 글자폭을 다소 넉넉히(≈0.62em) 잡아,
+    두줄 날짜를 과소 집계해 페이지가 넘치는 일이 없도록 한다.
     """
     import math
     if not text:
         return 1
     usable = max(1.0, col_mm - cell_pad_mm)          # 셀 좌우 안쪽 여백 제외
-    char_w = font_pt * 0.5 / 72.0 * 25.4             # 0.5em 을 mm 로 환산
+    char_w = font_pt * 0.62 / 72.0 * 25.4            # 0.62em 을 mm 로 환산(보수적)
     per_line = max(1, int(usable / char_w))
     return max(1, math.ceil(len(text) / per_line))
+
+
+def _fit_font_pt(text: str, col_mm: float = 68.0, base: float = 9.0,
+                 min_pt: float = 5.0, cell_pad_mm: float = 2.0) -> float:
+    """
+    text가 칸(col_mm) 안에 '한 줄'로 들어가도록 폰트 크기(pt)를 반환.
+    기본(base)에서 들어가면 그대로, 넘치면 축소(최소 min_pt). 렌더 불가라 보수적 추정.
+    → 모든 행이 한 줄이 되어 행 높이를 일정하게 유지(페이지 넘침 방지).
+    """
+    if not text:
+        return base
+    usable = max(1.0, col_mm - cell_pad_mm)
+    w = len(text) * base * 0.62 / 72.0 * 25.4        # base 크기에서의 예상 폭(mm)
+    if w <= usable:
+        return base
+    return max(min_pt, base * usable / w * 0.98)
 
 
 def _small_gap(doc: Document, pt: float = 4):
@@ -220,22 +354,53 @@ def _footer_note(doc: Document, text: str):
 
 # ── F-04 : 소재별 월 리포트 ──────────────────────────────────────────────────
 
-def generate_monthly_docx(item_name, year, month, days, advertiser, settings) -> str:
+def generate_monthly_docx(item_name, year, month, days, advertiser, settings,
+                          start_date=None, end_date=None) -> str:
     company = (settings.get("company_name") or "광주문화방송").strip() or "광주문화방송"
     short = (settings.get("company_short") or "광주MBC").strip() or "광주MBC"
-    doc = _new_doc()
-    _set_page(doc, 12)   # PDF와 동일하게 상·하·좌·우 여백 12mm
-    _title(doc, f"{short} 방송홍보 SB송출 현황", 18)
+    # 제목/내용 폰트 이름(환경설정). 미지정 시 기본(Malgun Gothic).
+    # Word는 폰트 '이름'만 기록하므로, 문서를 여는 PC에 해당 폰트가 설치돼 있어야 한다.
+    body_font  = (settings.get("report_font_body_name")  or "").strip() or _KO_FONT
+    title_font = (settings.get("report_font_title_name") or "").strip() or body_font
+    doc = _new_doc(body_font)
+    _set_page(doc, 12)   # 상·하·좌·우 여백 12mm(위=아래 대칭)
 
-    last_day = calendar.monthrange(year, month)[1]
-    wd_s = _DAY_OF_WEEK_KO[date_type(year, month, 1).weekday()]
-    wd_e = _DAY_OF_WEEK_KO[date_type(year, month, last_day).weekday()]
-    period = f"{year}.{month}.1({wd_s})~{year}.{month}.{last_day}({wd_e})"
+    # ── 로고(우측 상단, 있으면) ──
+    logo_path = settings.get("logo_path", "")
+    if logo_path and os.path.exists(logo_path):
+        lp = doc.add_paragraph()
+        lp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        lp.paragraph_format.space_after = Pt(1)
+        try:
+            lp.add_run().add_picture(logo_path, width=Mm(19.2), height=Mm(4.4))   # 폭 60%·높이 40%
+        except Exception:
+            pass
 
-    # 정보 표 (데이터 표와 동일하게 좌측 정렬 — 두 표의 좌측 여백을 맞춤)
+    # ── 제목: 위·아래 같은 두께 가로줄 + 큰 제목(상하 여백 대칭) ──
+    # 아래 줄은 '상단 테두리'로 만들어 빈 줄 없이 제목 바로 아래에 붙게 한다(대칭).
+    _hrule(doc, size=14, color="000000", space_before=0, space_after=6, side="bottom")
+    _title(doc, f"{short} 방송홍보 SB송출 현황", 28, font=title_font)  # 제목 아래 여백 6
+    _hrule(doc, size=14, color="000000", space_before=0, space_after=4, side="top")
+
+    # 대상 일자 목록 + 송출기간: start/end 지정 시 그 기간, 없으면 해당 월 전체
+    from datetime import timedelta as _td
+    if start_date and end_date:
+        d_start = date_type.fromisoformat(start_date)
+        d_end   = date_type.fromisoformat(end_date)
+        date_list = [d_start + _td(days=i) for i in range((d_end - d_start).days + 1)]
+    else:
+        last_day = calendar.monthrange(year, month)[1]
+        d_start = date_type(year, month, 1)
+        d_end   = date_type(year, month, last_day)
+        date_list = [date_type(year, month, dn) for dn in range(1, last_day + 1)]
+    wd_s = _DAY_OF_WEEK_KO[d_start.weekday()]
+    wd_e = _DAY_OF_WEEK_KO[d_end.weekday()]
+    period = (f"{d_start.year}.{d_start.month}.{d_start.day}({wd_s})~"
+              f"{d_end.year}.{d_end.month}.{d_end.day}({wd_e})")
+
+    # 정보 표 (실선 격자 — 윗줄·아랫줄·세로줄 모두)
     info = doc.add_table(rows=4, cols=4)
     info.style = "Table Grid"
-    # 좌우 여백을 동일하게: 표를 가운데 정렬(표 폭 170mm < 본문 폭이라 좌우 균등 배분)
     info.alignment = WD_TABLE_ALIGNMENT.CENTER
     note = advertiser.get("note") or "송출시간은 방송사 상황에 따라 변동될 수 있음"
     rows = [
@@ -246,23 +411,29 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
     ]
     for r, cells in enumerate(rows):
         for c, val in enumerate(cells):
-            _set_cell(info.rows[r].cells[c], val, bold=(c in (0, 2)),
-                      align="left" if c in (1, 3) else "center", size=8)
-    # 비고 칸(마지막 열)에 여유를 더 주기 위해 라벨 열 폭을 조금씩 덜어 이동
-    # (합계는 아래 데이터 표와 동일하게 170mm로 맞춰 두 표의 전체 폭을 일치시킴)
+            cell = info.rows[r].cells[c]
+            # 라벨 열(0,2) 가운데, 값 열(1,3) 좌측 + 한 칸 더 들여쓰기
+            _set_cell(cell, val, bold=(c in (0, 2)),
+                      align="left" if c in (1, 3) else "center", size=9, font=body_font)
+            if c in (1, 3):
+                cell.paragraphs[0].paragraph_format.left_indent = Mm(2)
     _set_col_widths(info, [18, 55, 24, 73])
     _compact_table(info, row_h_mm=6.0, exact=False)   # 비고 줄바꿈 대비 AT_LEAST
+    # 셀 글자 세로 가운데 정렬(윗줄에 붙지 않게)
+    for _r in info.rows:
+        for _c in _r.cells:
+            _c.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     _small_gap(doc)
 
-    # 데이터 표
-    table = _grid_table(doc, ["일 시", "요일", "횟수", "T V", "RADIO-AM", "RADIO-FM"])
+    # 데이터 표 (비고 열 포함)
+    table = _grid_table(doc, ["일 시", "요일", "횟수", "T V", "RADIO-AM", "RADIO-FM", "비고"], font=body_font)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER   # 정보표와 함께 가운데 정렬(좌우 여백 동일)
+    _white_header(table.rows[0], "3A3A3A")        # 첫 행: 진회색 배경 + 흰 글자
     days_map = {d["date"]: d for d in days}
     total = 0
     extra_lines = 0   # TV 시간 줄바꿈으로 늘어나는 총 추가 줄 수(행 높이 계산용)
-    for day_num in range(1, last_day + 1):
-        d = date_type(year, month, day_num)
+    for d in date_list:
         ds = d.strftime("%Y-%m-%d")
         wd = _DAY_OF_WEEK_KO[d.weekday()]
         info_d = days_map.get(ds)
@@ -272,47 +443,90 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings) ->
             total += cnt
         else:
             cnt, times = 0, ""
-        extra_lines += _estimate_wrap_lines(times) - 1
+        # TV 시간이 많으면 줄바꿈하지 않고 폰트를 줄여 '한 줄'로 → 행 높이 일정
+        tv_size = _fit_font_pt(times)
         cells = table.add_row().cells
-        vals = [f"{year % 100}. {month}. {day_num}", wd, str(cnt) if cnt else "", times, "-", "-"]
+        vals = [f"{d.year % 100}. {d.month}. {d.day}", wd, str(cnt) if cnt else "", times, "-", "-", ""]
         for i, v in enumerate(vals):
-            # PDF처럼 모든 칸 가운데 정렬 (TV 시간 포함) + 세로 가운데(여러 줄일 때 정렬)
-            _set_cell(cells[i], v, align="center", size=8)
+            # 모든 칸 가운데 정렬 + 세로 가운데. TV(i==3)만 자동 축소 폰트.
+            _set_cell(cells[i], v, align="center", size=(tv_size if i == 3 else 9), font=body_font)
             cells[i].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-    cells = table.add_row().cells
-    for i, v in enumerate(["총 계", f"{last_day} 일", f"{total} 회", f"총 {total} 회", "-", "-"]):
-        _set_cell(cells[i], v, bold=True, size=8)
-    _set_col_widths(table, [24, 12, 14, 76, 22, 22])
+    # 합계: 2행 — (A) 매체별 합계(TV/RADIO), (B) 아래 총 합계
+    row_a = table.add_row()
+    row_b = table.add_row()
+    ra, rb = row_a.cells, row_b.cells
+    _set_cell(ra[0], "총 계", bold=True, size=9, font=body_font)
+    _set_cell(ra[1], f"{len(date_list)} 일", bold=True, size=9, font=body_font)
+    _set_cell(ra[2], f"{total} 회", bold=True, size=9, font=body_font)   # 횟수+TV 합계
+    _set_cell(ra[4], "-", bold=True, size=9, font=body_font)
+    _set_cell(ra[5], "-", bold=True, size=9, font=body_font)
+    _set_cell(rb[2], f"총 {total} 회", bold=True, size=9, font=body_font)  # 총 합계
+    _set_col_widths(table, [22, 10, 12, 68, 22, 22, 14])
+    # 병합: 횟수+TV(윗줄), 총합계(아랫줄 넓게), '총 계'·일수 세로 병합
+    ra[2].merge(ra[3])
+    m = rb[2]
+    for _i in (3, 4, 5, 6):
+        m = m.merge(rb[_i])
+    ra[0].merge(rb[0])
+    ra[1].merge(rb[1])
+    _shade_row(row_a, "EAE3D0")
+    _shade_row(row_b, "EAE3D0")
+    # 모든 셀 세로 가운데 정렬(글자가 위/아래 선에 붙지 않게)
+    for _row in table.rows:
+        for _cell in _row.cells:
+            _cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     # ── 행 높이 자동 계산 (PDF처럼 위/아래 여백 균형 + 페이지 채우기) ──
     # 가용 세로 높이에서 제목·정보표·간격·푸터(추정 고정분)를 뺀 나머지를
     # 데이터 표의 각 행에 고르게 나눠, 내용이 적어도 표가 페이지를 채우게 한다.
     # 줄바꿈으로 늘어나는 행(extra_lines)만큼 높이를 먼저 확보해 넘침을 막는다.
-    num_rows = last_day + 2                 # 머리글 + 일자(last_day) + 총계
-    usable_h = 297.0 - 24.0                 # A4 높이 - 상하 여백(12+12)
+    num_rows = len(date_list) + 3           # 머리글 + 일자 + 총계 2줄
+    usable_h = 297.0 - 24.0                 # A4 높이 - 상하 여백(12+12, 대칭)
     # 제목+정보표+간격+푸터의 실제 렌더 높이는 서버에서 정확히 잴 수 없어,
     # 행 높이 6.6mm가 2페이지로 넘친(=푸터 밀림) 실측을 근거로 오버헤드를 넉넉히
     # 잡아 한 페이지를 보장한다. (row_h ≈ 5.9mm 수준으로 수렴)
-    overhead_mm = 76.0
-    line_h_mm = 3.4                         # 8pt 한 줄 높이(추정)
+    # 상단 고정분(로고·제목·가로줄·정보표·간격·푸터·꼬리문단·푸터앞 빈줄). 넉넉히 잡아
+    # 표를 짧게 → 합계·푸터가 항상 1페이지에 들어오게 한다. (아래 여백은 다소 남을 수 있음)
+    overhead_mm = 98.0
+    line_h_mm = 3.8                         # 9pt 한 줄 높이(줄바꿈 1줄당 추가 높이)
+    # 두줄 날짜(extra_lines)만큼 높이를 먼저 확보하고 나머지를 전 행에 고르게 분배.
+    #  → 줄바꿈 많으면 행높이 자동 축소(1페이지), 없으면 넉넉히 채워 위·아래 여백 균형.
     avail_table = usable_h - overhead_mm - extra_lines * line_h_mm
     row_h = avail_table / num_rows
-    row_h = max(4.8, min(6.2, row_h))       # 최소=조밀, 최대=넘침 방지 상한
+    row_h = max(3.8, min(6.5, row_h))       # 최소=조밀(넘침 방지), 최대=과도한 벌어짐 방지
     # AT_LEAST: 계산 높이로 채우되, 줄바꿈 행은 잘리지 않고 더 늘어남
     _compact_table(table, row_h_mm=row_h, exact=False)
 
+    # 푸터 앞 간격(표와 한 줄 더 띄움 — PDF와 비슷하게)
     _small_gap(doc)
-    # 푸터: 확인 문구(좌, 10pt)와 회사명(우, 11pt)을 한 줄에 배치.
-    # 테두리 없는 2칸 표로 좌·우 정렬을 한 줄에 맞춘다(폰트 크기는 각각 유지).
-    ftbl = doc.add_table(rows=1, cols=2)
+    doc.add_paragraph().add_run("").font.size = Pt(11)   # 빈 한 줄
+
+    # 푸터: 확인 문구 + 회사명(표 우측 끝보다 안쪽) + 회사명 위 직인 겹침
+    # 3열 [확인문구 | 회사명 | 우측 여백] → 회사명이 표 우측 끝보다 안쪽에 놓임
+    ftbl = doc.add_table(rows=1, cols=3)
     ftbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-    lc, rc = ftbl.rows[0].cells
-    _set_cell(lc, "위와 같이 방송 송출 완료하였음을 확인함", align="left", size=10)
-    _set_cell(rc, f"{company}(주)", bold=True, align="right", size=11)
+    lc, rc, _pad = ftbl.rows[0].cells
+    _confirm = f"위와 같이 방송 송출 완료하였음을 확인함 ({d_end.year}. {d_end.month}. {d_end.day}.)"
+    _set_cell(lc, _confirm, align="center", size=10.5, font=body_font)
+    _set_cell(rc, f"{company}(주)", bold=True, align="right", size=11, font=body_font)
+    _set_cell(_pad, "", size=11, font=body_font)
     lc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     rc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    _set_col_widths(ftbl, [100, 70])   # 합계 170mm (위 표들과 동일 폭)
+    # 확인 문구가 한 줄에 들어가도록 좌측 칸을 넓게, 회사명 칸은 우측 끝에서 안쪽
+    _set_col_widths(ftbl, [128, 38, 4])   # 합계 170mm
+
+    # 직인: 회사명 칸 문단에 '떠있는' 이미지로 '(주)' 글자 끝에 겹치게 한다.
+    # x_mm: 좌우(작을수록 왼쪽), y_mm: 상하(음수=위, 클수록 아래).
+    seal_path = settings.get("seal_path", "")
+    if seal_path and os.path.exists(seal_path):
+        try:
+            # x_mm: 페이지 왼쪽 기준 가로(작을수록 왼쪽), y_mm: 세로(작을수록 위로)
+            # 글자를 가리지 않도록 오른쪽으로: '(주)' 끝에 살짝만 겹치게
+            _add_floating_seal(rc.paragraphs[0], seal_path, w_mm=15, h_mm=15,
+                               x_mm=184, y_mm=-5)
+        except Exception:
+            pass
 
     safe_item = str(item_name).replace("/", "_").replace("\\", "_")[:80]
     out = str(REPORT_MONTHLY_DIR / f"SB송출현황_{safe_item}_{year}{month:02d}.docx")

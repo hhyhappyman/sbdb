@@ -368,6 +368,14 @@
 - [x] **급지 주중/주말 기준 분리** — `classify_grade(time_str, broadcast_date)`에 주말(토·일) 기준 추가(`_GRADE_RANGES_WEEKEND`), 달력 요일로 판정. 전 호출부에 broadcast_date 전달. 기존 DB는 `recompute_grades.py`로 일괄 재계산(로컬 20,961행 갱신, 멱등)
 - [x] **.gitignore 정리** — 모든 `*.sh` 제외하되 `install_service.sh`만 업로드(`!install_service.sh`)
 
+### 7-14. 소재별 월 리포트 — 기간 조회·폰트·출력 포맷 정밀화
+- [x] **기간(RangePicker) 조회** — 월 외 특정 기간 조회 추가(월 콤보와 조회 버튼 사이). 연·월 콤보 선택 시 기간 자동 삭제. 조회·저장·표 송출기간에 기간 반영. 백엔드 `get_item_monthly_report(start,end)`·엔드포인트·생성기 `start_date/end_date`
+- [x] **화면 상단 한 줄 정리** — 기간 폭·저장 버튼 크기 축소(줄바꿈 방지)
+- [x] **리포트 폰트 지정** — 제목/내용 별도 폰트. PDF는 .ttf 임베드(`report_font_title/body`, `_register_report_fonts`), Word는 폰트 이름(`report_font_title_name/body_name`)
+- [x] **출력 포맷 회사 양식 일치** — 제목 위·아래 가로줄(대칭), 정보표 실선 격자+라벨 가운데·값 들여쓰기·셀 세로중앙, 데이터표 헤더 진회색/총계 크림·zebra 제거·비고 열, 합계 2줄(매체별+총합계), 직인 글자 겹침, 로고 축소, 시간 00:xx
+- [x] **한 페이지 보장** — TV 시간 많으면 줄바꿈 대신 **폰트 자동 축소로 한 줄**(행높이 일정, PDF `_fit_size`/Word `_fit_font_pt`, 최소 5pt). PDF는 하단 여백 자동 축소 + spaceBefore/After 포함 정확 측정으로 1페이지 강제·여백 균형
+- [x] **직인 렌더링(Word)** — 떠있는 이미지 `layoutInCell=0`·positionH=page로 표시/위치 고정
+
 ---
 
 ## 현재 상태

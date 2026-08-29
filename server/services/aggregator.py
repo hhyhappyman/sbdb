@@ -348,12 +348,15 @@ def get_item_list_years() -> list[int]:
 
 # ── Report (F-04) ──────────────────────────────────────────────────────────
 
-def get_item_monthly_report(item_name: str, year: int, month: int) -> list[dict]:
+def get_item_monthly_report(item_name: str, year: int, month: int,
+                            start: str | None = None, end: str | None = None) -> list[dict]:
     """
-    특정 소재의 월별 날짜별 송출 시간 목록.
+    특정 소재의 날짜별 송출 시간 목록.
+    start/end('YYYY-MM-DD')가 주어지면 그 기간으로, 없으면 year·month 한 달 전체로 조회.
     Returns list of {date, times: [HH:MM:SS, ...], count}.
     """
-    start, end = _date_range(year, month)
+    if not (start and end):
+        start, end = _date_range(year, month)
     sql = """
         SELECT broadcast_date AS date, broadcast_time AS time
         FROM (

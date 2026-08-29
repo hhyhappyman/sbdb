@@ -54,8 +54,10 @@ export const searchItems = (q, limit = 30) =>
   api.get('/items', { params: { q, limit } }).then(r => r.data)
 
 // ── Report ─────────────────────────────────────────────────────────────────
-export const getMonthlyReport = (item, year, month) =>
-  api.get('/report', { params: { item, year, month } }).then(r => r.data)
+export const getMonthlyReport = (item, year, month, start, end) =>
+  api.get('/report', {
+    params: { item, year, month, ...(start && end ? { start, end } : {}) },
+  }).then(r => r.data)
 
 export const getMonthlyPdfUrl = (item, year, month) =>
   `/api/report/pdf?item=${encodeURIComponent(item)}&year=${year}&month=${month}`

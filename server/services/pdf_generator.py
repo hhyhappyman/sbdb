@@ -16,7 +16,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph,
-    Spacer, Image, HRFlowable,
+    Spacer, Image, HRFlowable, Flowable,
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -75,6 +75,62 @@ def _korean_font_candidates() -> list[str]:
     ordered = result + ttf_first + others
     seen = set()
     return [p for p in ordered if not (p in seen or seen.add(p))]
+
+
+def _fit_size(text: str, font: str, avail_pt: float,
+              base: float = 9.0, min_size: float = 5.0) -> float:
+    """
+    text가 avail_pt(칸 안쪽 폭) 안에 '한 줄'로 들어가도록 폰트 크기를 반환.
+    기본(base)에서 들어가면 그대로, 넘치면 들어갈 때까지 축소(최소 min_size).
+    (reportlab stringWidth로 정확히 계산)
+    """
+    if not text:
+        return base
+    w = pdfmetrics.stringWidth(text, font, base)
+    if w <= avail_pt:
+        return base
+    return max(min_size, base * avail_pt / w * 0.99)
+
+
+def _bold_sibling(path: str) -> str | None:
+    """Regular 폰트 경로에서 Bold 변형 파일 경로를 추정. 존재하면 반환, 없으면 None."""
+    cand = (path.replace("Regular", "Bold")
+                .replace("NanumGothic", "NanumGothicBold")
+                .replace("malgun.ttf", "malgunbd.ttf"))
+    return cand if (cand != path and os.path.exists(cand)) else None
+
+
+def _register_report_fonts(settings: dict) -> tuple[str, str, str]:
+    """
+    월 리포트용 폰트 등록. 환경설정에서 제목/내용 폰트 파일(.ttf)을 각각 지정할 수 있다.
+    반환: (body, body_bold, title)  — 각각 reportlab 등록 폰트 이름.
+      - report_font_body : 내용(정보표·데이터표·푸터) 폰트 파일. 미지정 시 기존 한글 폰트.
+      - report_font_title: 제목 폰트 파일. 미지정 시 내용 볼드 폰트(기존 동작).
+    폰트 파일은 TrueType(.ttf/.ttc)만 가능(reportlab 제약).
+    """
+    # ── 내용(body) ──
+    body_path = (settings.get("report_font_body") or "").strip()
+    if body_path and _try_register("RptBody", body_path):
+        body = "RptBody"
+        bsib = _bold_sibling(body_path)
+        if bsib and _try_register("RptBody-Bold", bsib):
+            body_bold = "RptBody-Bold"
+        else:
+            _try_register("RptBody-Bold", body_path)   # 볼드 없으면 정규체를 볼드로
+            body_bold = "RptBody-Bold"
+    else:
+        base = _register_fonts()                        # 기존 자동 감지(KoreanFont/Helvetica)
+        body = base
+        body_bold = (base + "-Bold") if base == "KoreanFont" else base
+
+    # ── 제목(title) ──
+    title_path = (settings.get("report_font_title") or "").strip()
+    if title_path and _try_register("RptTitle", title_path):
+        title = "RptTitle"
+    else:
+        title = body_bold                               # 미지정 → 기존처럼 내용 볼드체
+
+    return body, body_bold, title
 
 
 def _register_fonts() -> str:
@@ -139,11 +195,37 @@ def _format_date_ko(date_str: str) -> str:
 
 # ── Common table style helpers ───────────────────────────────────────────────
 
+class _SealOverlay(Flowable):
+    """
+    직인 이미지를 '자리를 차지하지 않고'(wrap=0) 바로 앞 푸터 위에 겹쳐 그린다.
+    → 우측 하단 '광주문화방송(주)' 글자와 직인이 겹쳐 보이게 한다.
+    x_mm/y_mm 은 이 flowable 배치 원점(푸터 하단) 기준 상대 위치.
+    """
+    def __init__(self, path, size_mm, x_mm, y_mm):
+        super().__init__()
+        self.path = path
+        self.size = size_mm * mm
+        self.x = x_mm * mm
+        self.y = y_mm * mm
+
+    def wrap(self, aw, ah):
+        return (0, 0)
+
+    def draw(self):
+        try:
+            self.canv.drawImage(self.path, self.x, self.y, self.size, self.size,
+                                preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+
+
 _DARK_GRAY = colors.HexColor("#3A3A3A")
 _LIGHT_GRAY = colors.HexColor("#F2F2F2")
 _BORDER = colors.HexColor("#888888")
 _HEADER_BG = _DARK_GRAY
 _HEADER_FG = colors.white
+_CREAM = colors.HexColor("#EAE3D0")   # 총계 행 배경(포맷 샘플의 크림색)
+_DOT = colors.HexColor("#B5B5B5")     # 상단 정보표 점선 색
 
 
 def _base_table_style() -> list:
@@ -184,13 +266,15 @@ def generate_monthly_pdf(
     days: list[dict],        # [{date, times:[HH:MM:SS,...], count}, ...]
     advertiser: dict,        # from advertisers table
     settings: dict,          # from app_settings
+    start_date: str | None = None,   # 'YYYY-MM-DD' 기간 시작(지정 시 기간 리포트)
+    end_date: str | None = None,     # 'YYYY-MM-DD' 기간 종료
 ) -> str:
     """
     Generate F-04 '광주MBC 방송홍보 SB송출 현황' PDF.
     Returns the file path of the generated PDF.
     """
-    font = _register_fonts()
-    bold = font + "-Bold" if font == "KoreanFont" else font
+    # 내용(body)·제목(title) 폰트 — 환경설정에서 각각 다른 .ttf 지정 가능
+    font, bold, title_font = _register_report_fonts(settings)
     company = (settings.get("company_name") or "광주문화방송").strip() or "광주문화방송"
     short = (settings.get("company_short") or "광주MBC").strip() or "광주MBC"
 
@@ -210,30 +294,44 @@ def generate_monthly_pdf(
     W = A4[0] - 30 * mm   # usable width
     story = []
 
-    # ── Logo ── (이미지가 설정된 경우에만 표시. 미설정 시 텍스트 placeholder 없음)
+    # ── Logo ── (우측 상단, 포맷 샘플에 맞춰 크기 축소)
     logo_path = settings.get("logo_path", "")
     if logo_path and os.path.exists(logo_path):
-        logo = Image(logo_path, width=40 * mm, height=14 * mm)
+        logo = Image(logo_path, width=19.2 * mm, height=4.4 * mm)   # 폭 60%·높이 40%
         logo.hAlign = "RIGHT"
         story.append(logo)
-        story.append(Spacer(1, 3 * mm))
+        story.append(Spacer(1, 1.5 * mm))
 
-    # ── Title ──
+    # ── Title ── (제목 위·아래 같은 두께 가로줄 + 큰 제목, 상하 여백 대칭)
+    # 제목 글자 상자(leading) 특성상 위쪽 여백이 커 보이므로, 아래 줄 앞 여백을 더 준다.
+    story.append(HRFlowable(width="100%", thickness=1.4, color=colors.black,
+                            spaceBefore=0, spaceAfter=2.5 * mm))
     story.append(Paragraph(
         f"{short} 방송홍보 SB송출 현황",
-        ParagraphStyle("title", fontName=bold, fontSize=18,
-                       alignment=TA_CENTER, spaceAfter=4 * mm),
+        ParagraphStyle("title", fontName=title_font, fontSize=32,
+                       alignment=TA_CENTER, spaceBefore=0, spaceAfter=0,
+                       leading=34),
     ))
+    story.append(HRFlowable(width="100%", thickness=1.4, color=colors.black,
+                            spaceBefore=6 * mm, spaceAfter=3 * mm))
 
-    # ── Info table ──
-    cal = calendar.monthrange(year, month)
-    last_day = cal[1]
-    d_start = date_type(year, month, 1)
-    d_end   = date_type(year, month, last_day)
+    # ── 리포트 대상 일자 목록 + 송출기간 문구 ──
+    # start_date/end_date가 주어지면 그 기간, 없으면 해당 월 전체.
+    from datetime import timedelta as _td
+    if start_date and end_date:
+        d_start = date_type.fromisoformat(start_date)
+        d_end   = date_type.fromisoformat(end_date)
+        date_list = [d_start + _td(days=i) for i in range((d_end - d_start).days + 1)]
+    else:
+        last_day = calendar.monthrange(year, month)[1]
+        d_start = date_type(year, month, 1)
+        d_end   = date_type(year, month, last_day)
+        date_list = [date_type(year, month, dn) for dn in range(1, last_day + 1)]
     wd_start = _DAY_OF_WEEK_KO[d_start.weekday()]
     wd_end   = _DAY_OF_WEEK_KO[d_end.weekday()]
     period_str = (
-        f"{year}.{month}.1({wd_start})~{year}.{month}.{last_day}({wd_end})"
+        f"{d_start.year}.{d_start.month}.{d_start.day}({wd_start})~"
+        f"{d_end.year}.{d_end.month}.{d_end.day}({wd_end})"
     )
 
     # 회사명/사업자등록번호/업태·업종은 광주MBC 고정값. 대표이사는 환경설정값.
@@ -256,33 +354,33 @@ def generate_monthly_pdf(
     info_table = Table(info_data, colWidths=col_w)
     info_table.setStyle(TableStyle([
         ("FONTNAME",    (0, 0), (-1, -1), font),
-        ("FONTSIZE",    (0, 0), (-1, -1), 9),
-        ("FONTNAME",    (0, 0), (0, -1), bold),
+        ("FONTSIZE",    (0, 0), (-1, -1), 9.5),
+        ("FONTNAME",    (0, 0), (0, -1), bold),   # 라벨 열(회사명 등) 볼드
         ("FONTNAME",    (2, 0), (2, -1), bold),
-        ("BACKGROUND",  (0, 0), (0, -1), _LIGHT_GRAY),
-        ("BACKGROUND",  (2, 0), (2, -1), _LIGHT_GRAY),
+        # 실선 격자(윗줄·아랫줄·세로줄 모두)
         ("GRID",        (0, 0), (-1, -1), 0.5, _BORDER),
+        # 라벨 열(회사명·사업자등록번호 등) 가운데 정렬, 값 열 좌측 정렬
         ("ALIGN",       (0, 0), (-1, -1), "CENTER"),
         ("ALIGN",       (1, 0), (1, -1), "LEFT"),
         ("ALIGN",       (3, 0), (3, -1), "LEFT"),
         ("VALIGN",      (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (1, 0), (1, -1), 4),
-        ("LEFTPADDING", (3, 0), (3, -1), 4),
+        # 값 열은 좌측에서 한 칸 더 들여쓰기
+        ("LEFTPADDING", (1, 0), (1, -1), 10),
+        ("LEFTPADDING", (3, 0), (3, -1), 10),
         ("ROWHEIGHT",   (0, 0), (-1, -1), 7 * mm),
     ]))
     story.append(info_table)
-    story.append(Spacer(1, 2.5 * mm))
+    story.append(Spacer(1, 2 * mm))
 
-    # ── Data table ── (비고 컬럼 제거 — 한 페이지에 맞추기 위해 폭/행 높이 축소)
-    header = ["일  시", "요일", "횟수", "T  V", "RADIO-AM", "RADIO-FM"]
-    col_w2 = [24 * mm, 12 * mm, 14 * mm, 76 * mm, 22 * mm, 22 * mm]
+    # ── Data table ── (비고 열 포함)
+    header = ["일  시", "요일", "횟수", "T  V", "RADIO-AM", "RADIO-FM", "비고"]
+    col_w2 = [22 * mm, 10 * mm, 12 * mm, 68 * mm, 22 * mm, 22 * mm, 14 * mm]
 
     days_map: dict = {d["date"]: d for d in days}
     total_count = 0
     data_rows = []
 
-    for day_num in range(1, last_day + 1):
-        d = date_type(year, month, day_num)
+    for d in date_list:
         date_str = d.strftime("%Y-%m-%d")
         wd = _DAY_OF_WEEK_KO[d.weekday()]
         day_info = days_map.get(date_str)
@@ -296,104 +394,134 @@ def generate_monthly_pdf(
             cnt = 0
             times_str = ""
 
+        # 시간이 많아 칸을 넘치면 줄바꿈하지 않고 폰트를 줄여 '한 줄'로 맞춘다.
+        # (TV 칸 폭 68mm - 좌우 패딩 여유. 모든 행이 한 줄이라 행 높이가 일정)
+        tv_size = _fit_size(times_str, font, avail_pt=68 * mm - 10, base=9.0, min_size=5.0)
         data_rows.append([
             _format_date_ko(date_str),
             wd,
             str(cnt) if cnt else "",
-            # 시간이 많아 칸을 넘치면 자동 줄바꿈(Paragraph). 빈 값은 그대로 둔다.
-            _wrap_cell(times_str, font, size=8) if times_str else "",
+            _wrap_cell(times_str, font, size=tv_size) if times_str else "",
             "-",
             "-",
+            "",     # 비고
         ])
 
-    # Total row
+    # Total: 2행 — (A) 매체별 합계(TV/RADIO-AM/RADIO-FM), (B) 그 아래 총 합계
+    # 모든 송출이 TV이므로 TV 합계 = 총 횟수, RADIO는 0(=-)
     data_rows.append([
-        "총  계",
-        f"{last_day} 일",
-        f"{total_count} 회",
-        f"총 {total_count} 회",
-        "-",
-        "-",
+        "총  계", f"{len(date_list)} 일",
+        f"{total_count} 회",   # 횟수+TV 합계(가로 병합)
+        "", "-", "-", "",
+    ])
+    data_rows.append([
+        "", "", f"총 {total_count} 회", "", "", "", "",   # 총 합계(가로 병합)
     ])
 
     table_data = [header] + data_rows
     data_table = Table(table_data, colWidths=col_w2)
 
     style = _base_table_style() + [
-        ("FONTSIZE",      (0, 0), (-1, -1), 8.5),
+        # 본문 셀 전체를 내용 폰트로 (base_style의 'KoreanFont' 하드코딩을 덮어씀)
+        ("FONTNAME",      (0, 0), (-1, -1), font),
+        # 줄바꿈 음영(zebra) 제거 — 본문 행 전체 흰색 (헤더/총계는 아래에서 덮어씀)
+        ("BACKGROUND",    (0, 1), (-1, -2), colors.white),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9.5),   # 내용 폰트 +1
         ("TOPPADDING",    (0, 0), (-1, -1), 2.2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
         ("FONTNAME",   (0, 0), (-1, 0), bold),
-        ("FONTSIZE",   (0, 0), (-1, 0), 9),
+        ("FONTSIZE",   (0, 0), (-1, 0), 9.5),
         ("BACKGROUND", (0, 0), (-1, 0), _HEADER_BG),
         ("TEXTCOLOR",  (0, 0), (-1, 0), _HEADER_FG),
-        # Total row
-        ("FONTNAME",   (0, -1), (-1, -1), bold),
-        ("BACKGROUND", (0, -1), (-1, -1), _LIGHT_GRAY),
-        ("SPAN",       (3, -1), (5, -1)),
-        ("ALIGN",      (3, -1), (3, -1), "CENTER"),
+        # Total 2행 (크림색 배경): -2=매체별 합계, -1=총 합계
+        ("FONTNAME",   (0, -2), (-1, -1), bold),
+        ("BACKGROUND", (0, -2), (-1, -1), _CREAM),
+        ("SPAN",       (0, -2), (0, -1)),   # '총 계' 세로 병합
+        ("SPAN",       (1, -2), (1, -1)),   # 일수 세로 병합
+        ("SPAN",       (2, -2), (3, -2)),   # 횟수+TV 합계 (윗줄)
+        ("SPAN",       (2, -1), (6, -1)),   # 총 합계 (아랫줄)
+        ("ALIGN",      (2, -2), (3, -2), "CENTER"),
+        ("ALIGN",      (2, -1), (6, -1), "CENTER"),
+        ("VALIGN",     (0, -2), (-1, -1), "MIDDLE"),
     ]
     data_table.setStyle(TableStyle(style))
     story.append(data_table)
     story.append(Spacer(1, 3 * mm))
 
-    # ── Footer ── (확인함 뒤 날짜 표기 제거)
+    # ── Footer ── (확인함 뒤에 종료일 표기 + 직인 겹침)
     seal_path = settings.get("seal_path", "")
+    _confirm = f"위와 같이 방송 송출 완료하였을 확인함 ({d_end.year}. {d_end.month}. {d_end.day}.)"
 
     footer_data = [[
         Paragraph(
-            "위와 같이 방송 송출 완료하였을 확인함",
-            ParagraphStyle("footer_l", fontName=font, fontSize=10, alignment=TA_LEFT),
+            _confirm,
+            ParagraphStyle("footer_l", fontName=font, fontSize=11, alignment=TA_CENTER),
         ),
         Paragraph(
             f"{company}(주)",
-            ParagraphStyle("footer_r", fontName=bold, fontSize=10, alignment=TA_RIGHT),
+            ParagraphStyle("footer_r", fontName=bold, fontSize=11, alignment=TA_RIGHT),
         ),
     ]]
-    footer_col_w = [W * 0.6, W * 0.4]
+    footer_col_w = [W * 0.62, W * 0.38]
     footer_table = Table(footer_data, colWidths=footer_col_w)
     footer_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ALIGN",  (1, 0), (1, 0),  "RIGHT"),
+        ("RIGHTPADDING", (1, 0), (1, 0), 16 * mm),   # 회사명을 표 우측 끝보다 안으로
     ]))
+    # 표와 겹치지 않도록 푸터를 한 줄 아래로(넉넉한 간격)
+    story.append(Spacer(1, 8 * mm))
     story.append(footer_table)
 
-    # Seal image (if available)
+    # Seal image — 자리 차지 없이 '(주)' 글자 위에 겹쳐 그린다(투명 배경이면 글자도 비쳐 보임).
+    W_mm = W / mm
     if seal_path and os.path.exists(seal_path):
-        seal = Image(seal_path, width=18 * mm, height=18 * mm)
-        seal.hAlign = "RIGHT"
-        story.append(seal)
+        story.append(_SealOverlay(seal_path, size_mm=17, x_mm=W_mm - 18, y_mm=-4))
 
-    # ── 행 높이 자동 계산 (위/아래 여백 동일 + 한 페이지 채우기) ──
-    # 현재 story 전체 높이를 측정한 뒤, 남는 세로 공간을 표의 각 행에 고르게
-    # 분배하여 내용이 페이지를 꽉 채우도록 셀 상하 패딩을 다시 정한다.
-    # 내용이 많아 넘칠 때는 패딩이 최소값까지 줄어 자동으로 한 페이지에 맞춘다.
-    # 상·하 여백(12mm+12mm) + SimpleDocTemplate 프레임 기본 상하 패딩(6pt+6pt)을
-    # 제외한 실제 배치 가능 높이. 푸터(하단 확인문구)가 한 행이라 분할되지 않고
-    # 통째로 배치돼야 하므로, 측정 합계보다 실제 소요가 커지는 점을 감안해
-    # 안전 여유(20pt)를 더 빼 넘침(2페이지)을 방지한다.
-    frame_h = A4[1] - 24 * mm - 12 - 20
-
+    # ── 행 높이 자동 계산 + 넘칠 때 하단 여백 축소로 1페이지 강제 ──
     # 표를 제외한 나머지 요소(제목/정보표/여백/푸터 등)의 높이를 1회 측정한다.
-    # (실제 build에 쓰이는 story 객체는 데이터표를 제외하고만 wrap → 손상 없음)
-    others_h = sum(
-        f.wrap(W, 100000)[1] for f in story if f is not data_table
-    )
+    # ⚠️ HRFlowable/Paragraph의 spaceBefore/After(제목 위·아래 여백 등)는 wrap()에
+    #    포함되지 않으므로 별도로 더한다(누락 시 과소측정 → 2페이지 넘침).
+    others_h = 0.0
+    for f in story:
+        if f is data_table:
+            continue
+        try:
+            others_h += f.getSpaceBefore()
+        except Exception:
+            pass
+        others_h += f.wrap(W, 100000)[1]
+        try:
+            others_h += f.getSpaceAfter()
+        except Exception:
+            pass
 
-    # 데이터표는 '측정 전용 복제본'으로만 반복 측정한다(실제 객체 손상 방지).
-    # 큰 패딩부터 0.1pt씩 낮추며, 한 페이지에 들어오는 가장 큰 값을 채택한다.
-    #  → 내용이 적으면 넉넉히 벌려 페이지를 채우고(위·아래 여백 균형),
-    #    내용이 많으면 자동으로 줄간격을 좁혀 한 페이지에 맞춘다.
-    chosen_pad = 1.4
-    pad = 6.0
-    while pad >= 1.4:
+    def _table_h(pad):
         probe = Table(table_data, colWidths=col_w2)
         probe.setStyle(TableStyle(style + [
             ("TOPPADDING",    (0, 0), (-1, -1), pad),
             ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
         ]))
-        table_h = probe.wrap(W, 100000)[1]
-        if others_h + table_h <= frame_h:
+        return probe.wrap(W, 100000)[1]
+
+    # 프레임 가용 높이: A4 - 상단여백(12mm) - 하단여백 - 프레임 기본패딩(12pt) - 안전여유(20pt)
+    _FRAME_PAD, _SAFETY = 12, 10
+    def frame_h_for(bmm):
+        return A4[1] - 12 * mm - bmm * mm - _FRAME_PAD - _SAFETY
+
+    # 최소 패딩(1.4)에서도 안 들어오면 하단 여백을 4mm까지 줄여서라도 1페이지에 맞춘다.
+    min_table_h = _table_h(1.4)
+    bottom_mm = 12
+    while bottom_mm > 4 and others_h + min_table_h > frame_h_for(bottom_mm):
+        bottom_mm -= 1
+    doc.bottomMargin = bottom_mm * mm
+    frame_h = frame_h_for(bottom_mm)
+
+    # 프레임 안에서 가장 큰 패딩을 채택(내용 적으면 넉넉히, 많으면 좁혀서)
+    chosen_pad = 1.4
+    pad = 6.0
+    while pad >= 1.4:
+        if others_h + _table_h(pad) <= frame_h:
             chosen_pad = pad
             break
         pad -= 0.1
@@ -402,7 +530,6 @@ def generate_monthly_pdf(
         ("TOPPADDING",    (0, 0), (-1, -1), chosen_pad),
         ("BOTTOMPADDING", (0, 0), (-1, -1), chosen_pad),
     ]))
-
     doc.build(story)
     return out_path
 

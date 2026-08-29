@@ -119,6 +119,19 @@ const FIELDS = [
     ],
   },
   {
+    section: '리포트 폰트 (소재별 월 리포트 저장용)',
+    items: [
+      { name: 'report_font_title', label: 'PDF 제목 폰트 파일(.ttf)',
+        placeholder: '예: /home/kjmbc/sbdb/fonts/제목폰트.ttf  (TrueType만, 비우면 기본)', plain: true },
+      { name: 'report_font_body', label: 'PDF 내용 폰트 파일(.ttf)',
+        placeholder: '예: /home/kjmbc/sbdb/fonts/내용폰트.ttf  (TrueType만, 비우면 기본)', plain: true },
+      { name: 'report_font_title_name', label: 'Word 제목 폰트 이름',
+        placeholder: '예: 나눔고딕  (보는 PC에 설치된 폰트 이름, 비우면 맑은 고딕)', plain: true },
+      { name: 'report_font_body_name', label: 'Word 내용 폰트 이름',
+        placeholder: '예: 바탕  (보는 PC에 설치된 폰트 이름, 비우면 맑은 고딕)', plain: true },
+    ],
+  },
+  {
     section: '근무자 로그인 설정',
     items: [
       { name: 'worker_id',       label: '근무자 아이디',   placeholder: '기본값: user',     plain: true },

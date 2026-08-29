@@ -20,6 +20,10 @@ class SettingsUpdate(BaseModel):
     cml_path:        str | None = None
     logo_path:       str | None = None
     seal_path:       str | None = None
+    report_font_title:      str | None = None
+    report_font_body:       str | None = None
+    report_font_title_name: str | None = None
+    report_font_body_name:  str | None = None
     ceo_name:        str | None = None
     company_name:    str | None = None
     company_short:   str | None = None

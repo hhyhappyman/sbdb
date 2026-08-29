@@ -30,6 +30,10 @@ SETTINGS_KEYS = [
     "cml_path",        # CML 매핑 파일 경로 (단일 파일)
     "logo_path",       # 광주MBC 로고 이미지 파일 경로
     "seal_path",       # 직인 이미지 파일 경로
+    "report_font_title",       # 월 리포트 PDF 제목 폰트 파일 경로(.ttf) — 임베드
+    "report_font_body",        # 월 리포트 PDF 내용 폰트 파일 경로(.ttf) — 임베드
+    "report_font_title_name",  # 월 리포트 Word 제목 폰트 이름(보는 PC에 설치돼 있어야 함)
+    "report_font_body_name",   # 월 리포트 Word 내용 폰트 이름
     "ceo_name",        # 대표이사명 (F-04 PDF 표기용)
     "admin_password",  # 관리자 비밀번호 (초기값: admin)
     "worker_id",       # 근무자 로그인 아이디 (초기값: user)

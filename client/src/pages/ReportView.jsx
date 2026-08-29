@@ -26,8 +26,20 @@ function MonthlyTab() {
   const [item,    setItem]    = useState(saved.item    ?? '')
   const [year,    setYear]    = useState(saved.year    ?? now.year())
   const [month,   setMonth]   = useState(saved.month   ?? now.month() + 1)
+  // 기간 조회(옵션). 값이 있으면 해당 기간, 없으면 위의 월 전체로 조회한다.
+  const [range,   setRange]   = useState(
+    saved.range && saved.range[0] && saved.range[1]
+      ? [dayjs(saved.range[0]), dayjs(saved.range[1])]
+      : null
+  )
   const [data,    setData]    = useState(saved.data    ?? null)
   const [loading, setLoading] = useState(false)
+
+  // 기간이 선택되어 있으면 {start, end}(YYYY-MM-DD), 아니면 {} 반환
+  const periodParams = () =>
+    (range && range[0] && range[1])
+      ? { start: range[0].format('YYYY-MM-DD'), end: range[1].format('YYYY-MM-DD') }
+      : { start: undefined, end: undefined }
 
   // 소재명 검색 모달
   const [modalOpen,    setModalOpen]    = useState(false)
@@ -45,8 +57,13 @@ function MonthlyTab() {
   const YEARS  = Array.from({ length: 5 }, (_, i) => now.year() - i)
   const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 
+  const rangeISO = () =>
+    (range && range[0] && range[1])
+      ? [range[0].format('YYYY-MM-DD'), range[1].format('YYYY-MM-DD')]
+      : null
+
   const save = (patch) =>
-    setStore(MONTHLY_STORE, { item, year, month, data, ...patch })
+    setStore(MONTHLY_STORE, { item, year, month, data, range: rangeISO(), ...patch })
 
   const fetchItems = async (q, type) => {
     const params = { q: q.trim(), limit: 50 }
@@ -66,7 +83,8 @@ function MonthlyTab() {
   const doReport = async (itemName) => {
     setLoading(true)
     try {
-      const res = await getMonthlyReport(itemName.trim(), year, month)
+      const { start, end } = periodParams()
+      const res = await getMonthlyReport(itemName.trim(), year, month, start, end)
       setData(res)
       save({ item: itemName, year, month, data: res })
     } catch (e) {
@@ -81,8 +99,9 @@ function MonthlyTab() {
     setLoading(true)
     setModalOpen(false)
     try {
+      const { start, end } = periodParams()
       const results = await Promise.allSettled(
-        names.map(n => getMonthlyReport(n.trim(), year, month))
+        names.map(n => getMonthlyReport(n.trim(), year, month, start, end))
       )
       console.log('[doReportMulti] results:', results)
       const dayMap = new Map()
@@ -182,8 +201,10 @@ function MonthlyTab() {
   const confirmSave = () => {
     const content = saveContent.trim() || item.trim()
     const base = saveFmt === 'word' ? '/api/report/word' : '/api/report/pdf'
-    const url = `${base}?item=${encodeURIComponent(item.trim())}`
+    const { start, end } = periodParams()
+    let url = `${base}?item=${encodeURIComponent(item.trim())}`
       + `&year=${year}&month=${month}&content=${encodeURIComponent(content)}`
+    if (start && end) url += `&start=${start}&end=${end}`
     window.open(url, '_blank')
     setSaveOpen(false)
   }
@@ -226,24 +247,49 @@ function MonthlyTab() {
             value={item}
             onChange={e => { setItem(e.target.value); save({ item: e.target.value }) }}
             placeholder="소재명 입력 후 조회"
-            style={{ width: 220 }}
+            style={{ width: 170 }}
             onPressEnter={search}
             allowClear
           />
         </Col>
         <Col>
-          <Select value={year} onChange={v => { setYear(v); save({ year: v }) }} style={{ width: 90 }}>
+          <Select
+            value={year}
+            onChange={v => { setYear(v); setRange(null); save({ year: v, range: null }) }}
+            style={{ width: 90 }}
+          >
             {YEARS.map(y => <Option key={y} value={y}>{y}년</Option>)}
           </Select>
         </Col>
         <Col>
-          <Select value={month} onChange={v => { setMonth(v); save({ month: v }) }} style={{ width: 80 }}>
+          <Select
+            value={month}
+            onChange={v => { setMonth(v); setRange(null); save({ month: v, range: null }) }}
+            style={{ width: 80 }}
+          >
             {MONTHS.map(m => <Option key={m} value={m}>{m}월</Option>)}
           </Select>
         </Col>
         <Col>
+          {/* 기간 조회(선택). 값이 있으면 그 기간, 없으면 위의 월 전체로 조회 */}
+          <DatePicker.RangePicker
+            value={range}
+            onChange={(v) => {
+              const norm = (v && v[0] && v[1]) ? v : null
+              setRange(norm)
+              save({ range: norm ? [norm[0].format('YYYY-MM-DD'), norm[1].format('YYYY-MM-DD')] : null })
+            }}
+            size="small"
+            format="YY-MM-DD"
+            placeholder={['기간시작', '기간종료']}
+            style={{ width: 205 }}
+            allowClear
+          />
+        </Col>
+        <Col>
           <Button
             type="primary"
+            size="small"
             icon={<SearchOutlined />}
             onClick={search}
             loading={searchLoading || loading}
@@ -254,15 +300,15 @@ function MonthlyTab() {
         {data && (
           <>
             <Col>
-              <Statistic value={data.total} suffix="회" valueStyle={{ fontSize: 16 }} />
+              <Statistic value={data.total} suffix="회" valueStyle={{ fontSize: 15 }} />
             </Col>
             <Col>
-              <Button icon={<FilePdfOutlined />} onClick={() => openSave('pdf')} danger>
+              <Button size="small" icon={<FilePdfOutlined />} onClick={() => openSave('pdf')} danger>
                 PDF 저장
               </Button>
             </Col>
             <Col>
-              <Button icon={<FileWordOutlined />} onClick={() => openSave('word')} style={{ borderColor: '#2b579a', color: '#2b579a' }}>
+              <Button size="small" icon={<FileWordOutlined />} onClick={() => openSave('word')} style={{ borderColor: '#2b579a', color: '#2b579a' }}>
                 Word 저장
               </Button>
             </Col>
@@ -277,7 +323,9 @@ function MonthlyTab() {
           rowKey="date"
           size="small"
           pagination={false}
-          locale={{ emptyText: data ? `${year}년 ${month}월 송출 내역이 없습니다.` : '소재를 선택하고 조회 버튼을 누르세요.' }}
+          locale={{ emptyText: data
+            ? (range ? '해당 기간 송출 내역이 없습니다.' : `${year}년 ${month}월 송출 내역이 없습니다.`)
+            : '소재를 선택하고 조회 버튼을 누르세요.' }}
         />
       </Spin>
 

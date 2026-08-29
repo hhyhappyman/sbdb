@@ -703,3 +703,26 @@ con == K                         → 공익/재난 이름 + '방송 종료 안�
 - 기존 데이터 갱신: `recompute_grades.py` — apst.db(broadcasts, manual_entries)·ddr1.db(broadcasts)의 grade를 요일 기준으로 재계산(`--apply`, 멱등). 주말 행만 변경(주중 규칙 불변).
 - 업로드 엔드포인트(`POST /api/ingest/apst`): `parse_apst`/`find_manual_segments`를 try/except로 감싸 **`json.JSONDecodeError` 등은 400 + 사유 메시지**로 반환(기존엔 500 "처리 실패"만 표시). 응답에 `inserted`(신규)·`skipped`(중복) 건수 포함.
 - 같은 **파일명**(source_file) 재업로드는 여전히 409로 차단(행 단위 방지와 별개).
+
+### 소재별 월 리포트 — 기간 조회
+- `aggregator.get_item_monthly_report(item, year, month, start=None, end=None)`: start/end 지정 시 그 기간, 없으면 월 전체.
+- `report.py`: 조회/PDF/Word 엔드포인트에 `start`/`end` 쿼리 추가, `_prepare_monthly_data`가 전달. 파일명 접미사도 기간이면 `시작-종료`.
+- `generate_monthly_pdf`/`generate_monthly_docx(..., start_date, end_date)`: 기간이면 그 범위의 일자만 반복 + 송출기간 문구 생성(총계 일수 = 기간 일수).
+- 프론트(`ReportView.MonthlyTab`): `range` 상태 + RangePicker(월 콤보와 조회 버튼 사이). 연·월 콤보 onChange에서 `setRange(null)`(기간 자동 삭제). 조회·저장 URL에 start/end 전달. 상단 폭 축소(기간 205px·size small, 저장 버튼 size small).
+
+### 리포트 폰트 지정 (제목/내용 별도)
+- 설정키: `report_font_title`/`report_font_body`(PDF, .ttf 경로), `report_font_title_name`/`report_font_body_name`(Word, 폰트 이름).
+- PDF `_register_report_fonts(settings)`: 내용 폰트는 RptBody(+Bold), 제목 폰트는 RptTitle로 등록. 미지정 시 기존 자동 한글폰트. reportlab은 TrueType만 등록 가능.
+- Word `_new_doc(body_font)`/`_title(..., font=title_font)`/`_set_cell(..., font=body_font)`: Normal 스타일·각 셀 폰트에 반영(이름 기반, 보는 PC에 설치 필요).
+
+### 소재별 월 리포트 출력 포맷 (pdf_generator / docx_generator)
+- 제목: 위·아래 같은 두께 가로줄(PDF HRFlowable, Word `_hrule` side=bottom/top) + 큰 제목, 상하 여백 대칭.
+- 정보표: 실선 격자(PDF GRID, Word Table Grid), 라벨 열 가운데·값 열 좌측+들여쓰기(PDF LEFTPADDING, Word left_indent), 셀 세로 가운데.
+- 데이터표: 헤더 진회색(3A3A3A)+흰글자, zebra 음영 제거(본문 흰색), 셀 세로 가운데, 비고 열 추가(7열).
+- 합계 2줄: 윗줄=매체별 합계(횟수+TV 병합=총횟수, RADIO=-), 아랫줄=총 합계(넓게 병합). 총계·일수는 두 줄 세로 병합.
+- 직인: PDF는 `_SealOverlay`(자리 안 차지, 푸터 위에 겹쳐 그림), Word는 `_add_floating_seal`(떠있는 이미지, positionH=page 절대, layoutInCell=0). 회사명 끝에 겹치되 글자 보이게.
+- 시간 표기: `_to_broadcast_hhmm`/`_hhmm` 실제 시각 00:xx.
+- 한 페이지 보장:
+  - TV 시간이 넘치면 줄바꿈 대신 폰트 자동 축소로 한 줄(PDF `_fit_size`=stringWidth 정확계산, Word `_fit_font_pt`=글자수 추정, 최소 5pt) → 모든 행 단일 라인·높이 일정.
+  - PDF: others_h에 flowable spaceBefore/After까지 합산해 정확 측정, 최소 패딩에서도 넘치면 하단 여백을 4mm까지 자동 축소해 1페이지. 적으면 패딩을 넉넉히 해 위·아래 여백 균형.
+  - Word: 렌더 측정 불가라 오버헤드(상단 고정분) 추정 + 행높이 자동 계산. 폰트 축소로 줄바꿈이 없어져 행 높이가 일정해짐.

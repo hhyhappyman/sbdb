@@ -60,14 +60,18 @@ def monthly_report(
     item:  str = Query(..., description="소재명 (정제된 이름)"),
     year:  int = Query(...),
     month: int = Query(..., ge=1, le=12),
+    start: str | None = Query(None, description="기간 시작일 YYYY-MM-DD (지정 시 기간 조회)"),
+    end:   str | None = Query(None, description="기간 종료일 YYYY-MM-DD"),
 ) -> dict:
-    """F-04 — 소재별 월 송출 내역 조회."""
-    rows = get_item_monthly_report(item, year, month)
+    """F-04 — 소재별 송출 내역 조회 (기간 지정 시 그 기간, 없으면 해당 월 전체)."""
+    rows = get_item_monthly_report(item, year, month, start, end)
     total = sum(r["count"] for r in rows)
     return {
         "item_name": item,
         "year":  year,
         "month": month,
+        "start": start,
+        "end":   end,
         "total": total,
         "days":  rows,
     }
@@ -77,7 +81,8 @@ def _sanitize_filename(name: str) -> str:
     return str(name).replace("/", "_").replace("\\", "_").strip()[:80] or "리포트"
 
 
-def _prepare_monthly_data(item: str, year: int, month: int, content: str | None = None):
+def _prepare_monthly_data(item: str, year: int, month: int, content: str | None = None,
+                          start: str | None = None, end: str | None = None):
     """
     소재별 월 리포트 데이터 준비. item에 ', '가 있으면 여러 소재로 보고
     날짜별로 송출 시간/횟수를 병합한다.
@@ -98,7 +103,7 @@ def _prepare_monthly_data(item: str, year: int, month: int, content: str | None 
     # 날짜별 병합 (단일/다중 공통)
     day_map: dict = {}
     for n in (names or [item]):
-        for d in get_item_monthly_report(n, year, month):
+        for d in get_item_monthly_report(n, year, month, start, end):
             e = day_map.get(d["date"])
             if e:
                 e["times"] = sorted(e["times"] + d["times"])
@@ -112,21 +117,31 @@ def _prepare_monthly_data(item: str, year: int, month: int, content: str | None 
     return days, {}, settings, display, file_name
 
 
+def _period_suffix(year: int, month: int, start: str | None, end: str | None) -> str:
+    """파일명 접미사: 기간 지정 시 시작~종료(YYYYMMDD), 아니면 YYYYMM."""
+    if start and end:
+        return f"{start.replace('-', '')}-{end.replace('-', '')}"
+    return f"{year}{month:02d}"
+
+
 @router.get("/pdf")
 def monthly_report_pdf(
     item:    str = Query(...),
     year:    int = Query(...),
     month:   int = Query(..., ge=1, le=12),
     content: str | None = Query(None, description="'송출 내용' 표시 문구 (없으면 소재명)"),
+    start:   str | None = Query(None, description="기간 시작일 YYYY-MM-DD"),
+    end:     str | None = Query(None, description="기간 종료일 YYYY-MM-DD"),
 ) -> FileResponse:
-    """F-04 — PDF 생성 후 다운로드 (여러 소재는 병합)."""
-    days, advertiser, settings, display, fname = _prepare_monthly_data(item, year, month, content)
+    """F-04 — PDF 생성 후 다운로드 (기간 지정 시 그 기간, 여러 소재는 병합)."""
+    days, advertiser, settings, display, fname = _prepare_monthly_data(item, year, month, content, start, end)
 
     pdf_path = generate_monthly_pdf(
         item_name=display, year=year, month=month,
         days=days, advertiser=advertiser, settings=settings,
+        start_date=start, end_date=end,
     )
-    filename = f"SB송출현황_{fname}_{year}{month:02d}.pdf"
+    filename = f"SB송출현황_{fname}_{_period_suffix(year, month, start, end)}.pdf"
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=filename)
 
 
@@ -136,12 +151,15 @@ def monthly_report_word(
     year:    int = Query(...),
     month:   int = Query(..., ge=1, le=12),
     content: str | None = Query(None, description="'송출 내용' 표시 문구 (없으면 소재명)"),
+    start:   str | None = Query(None, description="기간 시작일 YYYY-MM-DD"),
+    end:     str | None = Query(None, description="기간 종료일 YYYY-MM-DD"),
 ) -> FileResponse:
-    """F-04 — Word(.docx) 생성 후 다운로드 (여러 소재는 병합)."""
-    days, advertiser, settings, display, fname = _prepare_monthly_data(item, year, month, content)
+    """F-04 — Word(.docx) 생성 후 다운로드 (기간 지정 시 그 기간, 여러 소재는 병합)."""
+    days, advertiser, settings, display, fname = _prepare_monthly_data(item, year, month, content, start, end)
 
-    docx_path = generate_monthly_docx(display, year, month, days, advertiser, settings)
-    filename = f"SB송출현황_{fname}_{year}{month:02d}.docx"
+    docx_path = generate_monthly_docx(display, year, month, days, advertiser, settings,
+                                      start_date=start, end_date=end)
+    filename = f"SB송출현황_{fname}_{_period_suffix(year, month, start, end)}.docx"
     return FileResponse(path=docx_path, media_type=_DOCX_MEDIA, filename=filename)
 
 
