@@ -355,7 +355,7 @@ def _footer_note(doc: Document, text: str):
 # ── F-04 : 소재별 월 리포트 ──────────────────────────────────────────────────
 
 def generate_monthly_docx(item_name, year, month, days, advertiser, settings,
-                          start_date=None, end_date=None) -> str:
+                          start_date=None, end_date=None, client=None) -> str:
     company = (settings.get("company_name") or "광주문화방송").strip() or "광주문화방송"
     short = (settings.get("company_short") or "광주MBC").strip() or "광주MBC"
     # 제목/내용 폰트 이름(환경설정). 미지정 시 기본(Malgun Gothic).
@@ -403,8 +403,9 @@ def generate_monthly_docx(item_name, year, month, days, advertiser, settings,
     info.style = "Table Grid"
     info.alignment = WD_TABLE_ALIGNMENT.CENTER
     note = advertiser.get("note") or "송출시간은 방송사 상황에 따라 변동될 수 있음"
+    client_name = (client or "").strip() or company   # 거래처명(미입력 시 회사명)
     rows = [
-        ["회 사 명", company, "사업자등록번호", "410-81-06350"],
+        ["거래처명", client_name, "사업자등록번호", "410-81-06350"],
         ["송출 내용", item_name, "대 표 이 사", settings.get("ceo_name", "")],
         ["송출 매체", advertiser.get("broadcast_medium", "TV"), "업 태·업 종", "서비스·방송"],
         ["송출 기간", period, "비  고", note],

@@ -130,6 +130,7 @@ def monthly_report_pdf(
     year:    int = Query(...),
     month:   int = Query(..., ge=1, le=12),
     content: str | None = Query(None, description="'송출 내용' 표시 문구 (없으면 소재명)"),
+    client:  str | None = Query(None, description="'거래처명' 표시값 (없으면 회사명)"),
     start:   str | None = Query(None, description="기간 시작일 YYYY-MM-DD"),
     end:     str | None = Query(None, description="기간 종료일 YYYY-MM-DD"),
 ) -> FileResponse:
@@ -139,7 +140,7 @@ def monthly_report_pdf(
     pdf_path = generate_monthly_pdf(
         item_name=display, year=year, month=month,
         days=days, advertiser=advertiser, settings=settings,
-        start_date=start, end_date=end,
+        start_date=start, end_date=end, client=client,
     )
     filename = f"SB송출현황_{fname}_{_period_suffix(year, month, start, end)}.pdf"
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=filename)
@@ -151,6 +152,7 @@ def monthly_report_word(
     year:    int = Query(...),
     month:   int = Query(..., ge=1, le=12),
     content: str | None = Query(None, description="'송출 내용' 표시 문구 (없으면 소재명)"),
+    client:  str | None = Query(None, description="'거래처명' 표시값 (없으면 회사명)"),
     start:   str | None = Query(None, description="기간 시작일 YYYY-MM-DD"),
     end:     str | None = Query(None, description="기간 종료일 YYYY-MM-DD"),
 ) -> FileResponse:
@@ -158,7 +160,7 @@ def monthly_report_word(
     days, advertiser, settings, display, fname = _prepare_monthly_data(item, year, month, content, start, end)
 
     docx_path = generate_monthly_docx(display, year, month, days, advertiser, settings,
-                                      start_date=start, end_date=end)
+                                      start_date=start, end_date=end, client=client)
     filename = f"SB송출현황_{fname}_{_period_suffix(year, month, start, end)}.docx"
     return FileResponse(path=docx_path, media_type=_DOCX_MEDIA, filename=filename)
 

@@ -49,10 +49,11 @@ function MonthlyTab() {
   const [selectedKeys, setSelectedKeys] = useState([])
   const [modalType,    setModalType]    = useState('캠페인')
 
-  // 저장(송출 내용 입력) 모달
+  // 저장(거래처명·송출 내용 입력) 모달
   const [saveOpen,    setSaveOpen]    = useState(false)
   const [saveFmt,     setSaveFmt]     = useState('pdf')
   const [saveContent, setSaveContent] = useState('')
+  const [saveClient,  setSaveClient]  = useState('')   // 거래처명(상단 표 표시용)
 
   const YEARS  = Array.from({ length: 5 }, (_, i) => now.year() - i)
   const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
@@ -190,20 +191,23 @@ function MonthlyTab() {
 
   const isMultiItem = item.includes(', ')
 
-  // 저장 버튼 → '송출 내용' 입력 모달 표시 (기본값 = 검색 소재명)
+  // 저장 버튼 → '거래처명·송출 내용' 입력 모달 표시 (송출 내용 기본값 = 검색 소재명)
   const openSave = (fmt) => {
     if (!item.trim()) { message.warning('소재명을 선택하세요.'); return }
     setSaveFmt(fmt)
     setSaveContent(item.trim())
+    // 거래처명은 직전 입력값 유지(없으면 빈 값)
     setSaveOpen(true)
   }
 
   const confirmSave = () => {
     const content = saveContent.trim() || item.trim()
+    const client = saveClient.trim()
     const base = saveFmt === 'word' ? '/api/report/word' : '/api/report/pdf'
     const { start, end } = periodParams()
     let url = `${base}?item=${encodeURIComponent(item.trim())}`
       + `&year=${year}&month=${month}&content=${encodeURIComponent(content)}`
+      + `&client=${encodeURIComponent(client)}`
     if (start && end) url += `&start=${start}&end=${end}`
     window.open(url, '_blank')
     setSaveOpen(false)
@@ -329,9 +333,9 @@ function MonthlyTab() {
         />
       </Spin>
 
-      {/* 저장 시 '송출 내용' 입력 모달 */}
+      {/* 저장 시 '거래처명·송출 내용' 입력 모달 */}
       <Modal
-        title={`${saveFmt === 'word' ? 'Word' : 'PDF'} 저장 — 송출 내용 입력`}
+        title={`${saveFmt === 'word' ? 'Word' : 'PDF'} 저장 — 거래처명·송출 내용 입력`}
         open={saveOpen}
         onOk={confirmSave}
         onCancel={() => setSaveOpen(false)}
@@ -339,7 +343,18 @@ function MonthlyTab() {
         cancelText="취소"
         width={460}
       >
-        <div style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
+        <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>
+          리포트 상단 표의 '거래처명' 칸에 표시할 이름입니다.
+        </div>
+        <Input
+          value={saveClient}
+          onChange={e => setSaveClient(e.target.value)}
+          onPressEnter={confirmSave}
+          placeholder="거래처명 (예: 광주문화방송)"
+          autoFocus
+          style={{ marginBottom: 14 }}
+        />
+        <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>
           리포트의 '송출 내용' 칸에 표시할 문구입니다. (기본값: 검색한 소재명)
         </div>
         <Input
@@ -347,7 +362,6 @@ function MonthlyTab() {
           onChange={e => setSaveContent(e.target.value)}
           onPressEnter={confirmSave}
           placeholder="송출 내용"
-          autoFocus
         />
       </Modal>
 

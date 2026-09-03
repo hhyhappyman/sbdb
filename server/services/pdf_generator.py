@@ -268,6 +268,7 @@ def generate_monthly_pdf(
     settings: dict,          # from app_settings
     start_date: str | None = None,   # 'YYYY-MM-DD' 기간 시작(지정 시 기간 리포트)
     end_date: str | None = None,     # 'YYYY-MM-DD' 기간 종료
+    client: str | None = None,       # 거래처명(상단 표 표시. 없으면 회사명)
 ) -> str:
     """
     Generate F-04 '광주MBC 방송홍보 SB송출 현황' PDF.
@@ -339,8 +340,9 @@ def generate_monthly_pdf(
     _note_para = Paragraph(
         _note, ParagraphStyle("note", fontName=font, fontSize=8, alignment=TA_LEFT, leading=10)
     )
+    client_name = (client or "").strip() or company   # 거래처명(미입력 시 회사명)
     info_data = [
-        ["회 사 명",  company,
+        ["거래처명",  client_name,
          "사업자등록번호", "410-81-06350"],
         ["송출 내용",  item_name,
          "대 표 이 사", settings.get("ceo_name", "")],
