@@ -79,27 +79,23 @@ def _write_gongik_sheet(ws, rows: list[dict]):
 
 
 def _write_jaenan_sheet(ws, rows: list[dict]):
-    headers = ["날짜", "요일", "방송시간", "공익광고명", "분", "초", "초수(총)",
+    # 공익 시트와 동일한 열 구성(분/초 없이 '초수'+'시급').
+    headers = ["날짜", "요일", "방송시간", "공익광고명", "초수", "시급",
                "가중치적용유무", "가중치 적용", "가중치미적용"]
     ws.append(headers)
     _style_header(ws, len(headers))
 
     for i, r in enumerate(rows, start=2):
         _write_common_cells(ws, i, r)
-        dur = int(r["duration"] or 0)
-        minutes = dur // 60
-        secs = dur % 60
-        ws.cell(row=i, column=5, value=minutes if minutes > 0 else None).alignment = _CENTER
-        ws.cell(row=i, column=6, value=secs if secs > 0 else None).alignment = _CENTER
-        ws.cell(row=i, column=7, value=dur).alignment = _CENTER
-        ws.cell(row=i, column=8, value="O" if r["weighted"] else None).alignment = _CENTER
-        ws.cell(row=i, column=9, value=_num(r["weighted_value"])).alignment = _CENTER
-        ws.cell(row=i, column=10, value=_num(r["unweighted_value"])).alignment = _CENTER
+        ws.cell(row=i, column=5, value=_num(r["duration"])).alignment = _CENTER
+        ws.cell(row=i, column=6, value=r["grade"]).alignment = _CENTER
+        ws.cell(row=i, column=7, value="O" if r["weighted"] else None).alignment = _CENTER
+        ws.cell(row=i, column=8, value=_num(r["weighted_value"])).alignment = _CENTER
+        ws.cell(row=i, column=9, value=_num(r["unweighted_value"])).alignment = _CENTER
         for c in range(1, len(headers) + 1):
             ws.cell(row=i, column=c).border = _BORDER
 
-    widths = {"A": 12, "B": 6, "C": 12, "D": 24, "E": 6, "F": 6, "G": 9,
-              "H": 14, "I": 12, "J": 12}
+    widths = {"A": 12, "B": 6, "C": 12, "D": 24, "E": 8, "F": 7, "G": 14, "H": 12, "I": 12}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 

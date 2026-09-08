@@ -1049,16 +1049,14 @@ function GongikJaenanMonthlyTab() {
     { title: '가중치 적용', dataIndex: 'weighted_value', width: 90, align: 'center' },
     { title: '미적용', dataIndex: 'unweighted_value', width: 70, align: 'center' },
   ]
+  // 공익광고 송출내역과 동일한 열 구성(분/초 없이 '초수'+'시급').
   const JAENAN_COLS = [
     { title: '날짜', dataIndex: 'date', width: 110, align: 'center' },
     { title: '요일', dataIndex: 'weekday', width: 50, align: 'center' },
     { title: '방송시간', dataIndex: 'time', width: 100, align: 'center' },
     { title: '공익광고명', dataIndex: 'name', ellipsis: true },
-    { title: '분', dataIndex: 'duration', width: 45, align: 'center',
-      render: d => { const m = Math.floor((d||0)/60); return m > 0 ? m : '' } },
-    { title: '초', dataIndex: 'duration', width: 45, align: 'center',
-      render: d => { const s = (d||0)%60; return s > 0 ? s : '' } },
-    { title: '초수(총)', dataIndex: 'duration', width: 70, align: 'center' },
+    { title: '초수', dataIndex: 'duration', width: 60, align: 'center' },
+    { title: '시급', dataIndex: 'grade', width: 55, align: 'center' },
     { title: '가중치', dataIndex: 'weighted', width: 60, align: 'center',
       render: v => v ? <Tag color="red">O</Tag> : '' },
     { title: '가중치 적용', dataIndex: 'weighted_value', width: 90, align: 'center' },
